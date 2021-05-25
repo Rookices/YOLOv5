@@ -97,7 +97,7 @@ class ComputeLoss:
         BCEobj = nn.BCEWithLogitsLoss(pos_weight=torch.tensor([h['obj_pw']], device=device))
 
         # Class label smoothing https://arxiv.org/pdf/1902.04103.pdf eqn 3
-        self.cp, self.cn = smooth_BCE(eps=0.0)
+        self.cp, self.cn = smooth_BCE(eps=h.get('label_smoothing', 0.0))  # positive, negative BCE targets
 
         # Focal loss
         g = h['fl_gamma']  # focal loss gamma
@@ -159,6 +159,22 @@ class ComputeLoss:
 
         loss = lbox + lobj + lcls
         return loss * bs, torch.cat((lbox, lobj, lcls, loss)).detach()
+
+    def sl_loss(self, p, prunable_modules):
+        # Sparse Learning
+        device = p[0].device
+        ll1 = torch.zeros(1, device=device)
+        
+        if prunable_modules is not None:
+            for m in prunable_modules:
+                ll1 += m.weight.norm(1)
+            ll1 /= len(prunable_modules)
+            
+        ll1 *= self.hyp['sl']
+        bs = p[0].shape[0]  # batch size
+        
+        loss = ll1
+        return loss * bs, ll1.detach()
 
     def build_targets(self, p, targets):
         # Build targets for compute_loss(), input targets(image,class,x,y,w,h)
