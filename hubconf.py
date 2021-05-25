@@ -120,7 +120,7 @@ def custom(path_or_model='path/to/model.pt', autoshape=True):
     """
     model = torch.load(path_or_model) if isinstance(path_or_model, str) else path_or_model  # load checkpoint
     if isinstance(model, dict):
-        model = model['ema' if model.get('ema') else 'model']  # load model
+        model = model['model']  # load model
 
     hub_model = Model(model.yaml).to(next(model.parameters()).device)  # create
     hub_model.load_state_dict(model.float().state_dict())  # load state_dict
@@ -133,14 +133,9 @@ if __name__ == '__main__':
     # model = custom(path_or_model='path/to/model.pt')  # custom example
 
     # Verify inference
-    import numpy as np
     from PIL import Image
 
-    imgs = [Image.open('data/images/bus.jpg'),  # PIL
-            'data/images/zidane.jpg',  # filename
-            'https://github.com/ultralytics/yolov5/raw/master/data/images/bus.jpg',  # URI
-            np.zeros((640, 480, 3))]  # numpy
-
-    results = model(imgs)  # batched inference
+    imgs = [Image.open(x) for x in Path('data/images').glob('*.jpg')]
+    results = model(imgs)
+    results.show()
     results.print()
-    results.save()
