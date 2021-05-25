@@ -1,15 +1,17 @@
 # This file contains modules common to various models
 
 import math
+from pathlib import Path
+
 import numpy as np
 import requests
 import torch
 import torch.nn as nn
-from PIL import Image, ImageDraw
+from PIL import Image
 
 from utils.datasets import letterbox
 from utils.general import non_max_suppression, make_divisible, scale_coords, xyxy2xywh
-from utils.plots import color_list
+from utils.plots import color_list, plot_one_box
 
 
 def autopad(k, p=None):  # kernel, padding
@@ -107,9 +109,13 @@ class Focus(nn.Module):
         self.conv = Conv(c1 * 4, c2, k, s, p, g, act)
         # self.contract = Contract(gain=2)
 
-    def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
-        return self.conv(torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1))
+    #def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
+        #return self.conv(torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1))
         # return self.conv(self.contract(x))
+##修改后focus
+    def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
+        return self.conv(torch.cat([x[..., ::2, ::2], x[..., ::2, 1::2], x[..., 1::2, ::2],  x[..., 1::2, 1::2]], 1))
+
 
 
 class Contract(nn.Module):
@@ -194,10 +200,12 @@ class autoShape(nn.Module):
 
         # Pre-process
         n, imgs = (len(imgs), imgs) if isinstance(imgs, list) else (1, [imgs])  # number of images, list of images
-        shape0, shape1 = [], []  # image and inference shapes
+        shape0, shape1, files = [], [], []  # image and inference shapes, filenames
         for i, im in enumerate(imgs):
             if isinstance(im, str):  # filename or uri
-                im = Image.open(requests.get(im, stream=True).raw if im.startswith('http') else im)  # open
+                im, f = Image.open(requests.get(im, stream=True).raw if im.startswith('http') else im), im  # open
+                im.filename = f  # for uri
+            files.append(Path(im.filename).with_suffix('.jpg').name if isinstance(im, Image.Image) else f'image{i}.jpg')
             im = np.array(im)  # to numpy
             if im.shape[0] < 5:  # image in CHW
                 im = im.transpose((1, 2, 0))  # reverse dataloader .transpose(2, 0, 1)
@@ -222,45 +230,48 @@ class autoShape(nn.Module):
         for i in range(n):
             scale_coords(shape1, y[i][:, :4], shape0[i])
 
-        return Detections(imgs, y, self.names)
+        return Detections(imgs, y, files, self.names)
 
 
 class Detections:
     # detections class for YOLOv5 inference results
-    def __init__(self, imgs, pred, names=None):
+    def __init__(self, imgs, pred, files, names=None):
         super(Detections, self).__init__()
         d = pred[0].device  # device
         gn = [torch.tensor([*[im.shape[i] for i in [1, 0, 1, 0]], 1., 1.], device=d) for im in imgs]  # normalizations
         self.imgs = imgs  # list of images as numpy arrays
         self.pred = pred  # list of tensors pred[0] = (xyxy, conf, cls)
         self.names = names  # class names
+        self.files = files  # image filenames
         self.xyxy = pred  # xyxy pixels
         self.xywh = [xyxy2xywh(x) for x in pred]  # xywh pixels
         self.xyxyn = [x / g for x, g in zip(self.xyxy, gn)]  # xyxy normalized
         self.xywhn = [x / g for x, g in zip(self.xywh, gn)]  # xywh normalized
         self.n = len(self.pred)
 
-    def display(self, pprint=False, show=False, save=False):
+    def display(self, pprint=False, show=False, save=False, render=False, save_dir=''):
         colors = color_list()
         for i, (img, pred) in enumerate(zip(self.imgs, self.pred)):
-            str = f'Image {i + 1}/{len(self.pred)}: {img.shape[0]}x{img.shape[1]} '
+            str = f'image {i + 1}/{len(self.pred)}: {img.shape[0]}x{img.shape[1]} '
             if pred is not None:
                 for c in pred[:, -1].unique():
                     n = (pred[:, -1] == c).sum()  # detections per class
-                    str += f'{n} {self.names[int(c)]}s, '  # add to string
-                if show or save:
-                    img = Image.fromarray(img.astype(np.uint8)) if isinstance(img, np.ndarray) else img  # from np
+                    str += f"{n} {self.names[int(c)]}{'s' * (n > 1)}, "  # add to string
+                if show or save or render:
                     for *box, conf, cls in pred:  # xyxy, confidence, class
-                        # str += '%s %.2f, ' % (names[int(cls)], conf)  # label
-                        ImageDraw.Draw(img).rectangle(box, width=4, outline=colors[int(cls) % 10])  # plot
-            if save:
-                f = f'results{i}.jpg'
-                str += f"saved to '{f}'"
-                img.save(f)  # save
-            if show:
-                img.show(f'Image {i}')  # show
+                        label = f'{self.names[int(cls)]} {conf:.2f}'
+                        plot_one_box(box, img, label=label, color=colors[int(cls) % 10])
+            img = Image.fromarray(img.astype(np.uint8)) if isinstance(img, np.ndarray) else img  # from np
             if pprint:
-                print(str)
+                print(str.rstrip(', '))
+            if show:
+                img.show(self.files[i])  # show
+            if save:
+                f = Path(save_dir) / self.files[i]
+                img.save(f)  # save
+                print(f"{'Saving' * (i == 0)} {f},", end='' if i < self.n - 1 else ' done.\n')
+            if render:
+                self.imgs[i] = np.asarray(img)
 
     def print(self):
         self.display(pprint=True)  # print results
@@ -268,8 +279,13 @@ class Detections:
     def show(self):
         self.display(show=True)  # show results
 
-    def save(self):
-        self.display(save=True)  # save results
+    def save(self, save_dir='results/'):
+        Path(save_dir).mkdir(exist_ok=True)
+        self.display(save=True, save_dir=save_dir)  # save results
+
+    def render(self):
+        self.display(render=True)  # render results
+        return self.imgs
 
     def __len__(self):
         return self.n

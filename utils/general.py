@@ -25,6 +25,7 @@ from utils.torch_utils import init_torch_seeds
 torch.set_printoptions(linewidth=320, precision=5, profile='long')
 np.set_printoptions(linewidth=320, formatter={'float_kind': '{:11.5g}'.format})  # format short g, %precision=5
 cv2.setNumThreads(0)  # prevent OpenCV from multithreading (incompatible with PyTorch DataLoader)
+os.environ['NUMEXPR_MAX_THREADS'] = str(min(os.cpu_count(), 8))  # NumExpr max threads
 
 
 def set_logging(rank=-1):
@@ -34,6 +35,7 @@ def set_logging(rank=-1):
 
 
 def init_seeds(seed=0):
+    # Initialize random number generator (RNG) seeds
     random.seed(seed)
     np.random.seed(seed)
     init_torch_seeds(seed)
@@ -45,12 +47,49 @@ def get_latest_run(search_dir='.'):
     return max(last_list, key=os.path.getctime) if last_list else ''
 
 
+def isdocker():
+    # Is environment a Docker container
+    return Path('/workspace').exists()  # or Path('/.dockerenv').exists()
+
+
+def check_online():
+    # Check internet connectivity
+    import socket
+    try:
+        socket.create_connection(("1.1.1.1", 443), 5)  # check host accesability
+        return True
+    except OSError:
+        return False
+
+
 def check_git_status():
-    # Suggest 'git pull' if repo is out of date
-    if platform.system() in ['Linux', 'Darwin'] and not os.path.isfile('/.dockerenv'):
-        s = subprocess.check_output('if [ -d .git ]; then git fetch && git status -uno; fi', shell=True).decode('utf-8')
-        if 'Your branch is behind' in s:
-            print(s[s.find('Your branch is behind'):s.find('\n\n')] + '\n')
+    # Recommend 'git pull' if code is out of date
+    print(colorstr('github: '), end='')
+    try:
+        assert Path('.git').exists(), 'skipping check (not a git repository)'
+        assert not isdocker(), 'skipping check (Docker image)'
+        assert check_online(), 'skipping check (offline)'
+
+        cmd = 'git fetch && git config --get remote.origin.url'
+        url = subprocess.check_output(cmd, shell=True).decode().strip().rstrip('.git')  # github repo url
+        branch = subprocess.check_output('git rev-parse --abbrev-ref HEAD', shell=True).decode().strip()  # checked out
+        n = int(subprocess.check_output(f'git rev-list {branch}..origin/master --count', shell=True))  # commits behind
+        if n > 0:
+            s = f"⚠️ WARNING: code is out of date by {n} commit{'s' * (n > 1)}. " \
+                f"Use 'git pull' to update or 'git clone {url}' to download latest."
+        else:
+            s = f'up to date with {url} ✅'
+        print(s.encode().decode('ascii', 'ignore') if platform.system() == 'Windows' else s)
+    except Exception as e:
+        print(e)
+
+
+def check_requirements(file='requirements.txt', exclude=()):
+    # Check installed dependencies meet requirements
+    import pkg_resources
+    requirements = [f'{x.name}{x.specifier}' for x in pkg_resources.parse_requirements(Path(file).open())
+                    if x.name not in exclude]
+    pkg_resources.require(requirements)  # DistributionNotFound or VersionConflict exception if requirements not met
 
 
 def check_img_size(img_size, s=32):
@@ -59,6 +98,20 @@ def check_img_size(img_size, s=32):
     if new_size != img_size:
         print('WARNING: --img-size %g must be multiple of max stride %g, updating to %g' % (img_size, s, new_size))
     return new_size
+
+
+def check_imshow():
+    # Check if environment supports image displays
+    try:
+        assert not isdocker(), 'cv2.imshow() is disabled in Docker environments'
+        cv2.imshow('test', np.zeros((1, 1, 3)))
+        cv2.waitKey(1)
+        cv2.destroyAllWindows()
+        cv2.waitKey(1)
+        return True
+    except Exception as e:
+        print(f'WARNING: Environment does not support cv2.imshow() or PIL Image.show() image displays\n{e}')
+        return False
 
 
 def check_file(file):
@@ -105,6 +158,31 @@ def clean_str(s):
 def one_cycle(y1=0.0, y2=1.0, steps=100):
     # lambda function for sinusoidal ramp from y1 to y2
     return lambda x: ((1 - math.cos(x * math.pi / steps)) / 2) * (y2 - y1) + y1
+
+
+def colorstr(*input):
+    # Colors a string https://en.wikipedia.org/wiki/ANSI_escape_code, i.e.  colorstr('blue', 'hello world')
+    *args, string = input if len(input) > 1 else ('blue', 'bold', input[0])  # color arguments, string
+    colors = {'black': '\033[30m',  # basic colors
+              'red': '\033[31m',
+              'green': '\033[32m',
+              'yellow': '\033[33m',
+              'blue': '\033[34m',
+              'magenta': '\033[35m',
+              'cyan': '\033[36m',
+              'white': '\033[37m',
+              'bright_black': '\033[90m',  # bright colors
+              'bright_red': '\033[91m',
+              'bright_green': '\033[92m',
+              'bright_yellow': '\033[93m',
+              'bright_blue': '\033[94m',
+              'bright_magenta': '\033[95m',
+              'bright_cyan': '\033[96m',
+              'bright_white': '\033[97m',
+              'end': '\033[0m',  # misc
+              'bold': '\033[1m',
+              'underline': '\033[4m'}
+    return ''.join(colors[x] for x in args) + f'{string}' + colors['end']
 
 
 def labels_to_class_weights(labels, nc=80):
@@ -166,6 +244,50 @@ def xywh2xyxy(x):
     return y
 
 
+def xywhn2xyxy(x, w=640, h=640, padw=0, padh=0):
+    # Convert nx4 boxes from [x, y, w, h] normalized to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right
+    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y[:, 0] = w * (x[:, 0] - x[:, 2] / 2) + padw  # top left x
+    y[:, 1] = h * (x[:, 1] - x[:, 3] / 2) + padh  # top left y
+    y[:, 2] = w * (x[:, 0] + x[:, 2] / 2) + padw  # bottom right x
+    y[:, 3] = h * (x[:, 1] + x[:, 3] / 2) + padh  # bottom right y
+    return y
+
+
+def xyn2xy(x, w=640, h=640, padw=0, padh=0):
+    # Convert normalized segments into pixel segments, shape (n,2)
+    y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
+    y[:, 0] = w * x[:, 0] + padw  # top left x
+    y[:, 1] = h * x[:, 1] + padh  # top left y
+    return y
+
+
+def segment2box(segment, width=640, height=640):
+    # Convert 1 segment label to 1 box label, applying inside-image constraint, i.e. (xy1, xy2, ...) to (xyxy)
+    x, y = segment.T  # segment xy
+    inside = (x >= 0) & (y >= 0) & (x <= width) & (y <= height)
+    x, y, = x[inside], y[inside]
+    return np.array([x.min(), y.min(), x.max(), y.max()]) if any(x) else np.zeros((1, 4))  # cls, xyxy
+
+
+def segments2boxes(segments):
+    # Convert segment labels to box labels, i.e. (cls, xy1, xy2, ...) to (cls, xywh)
+    boxes = []
+    for s in segments:
+        x, y = s.T  # segment xy
+        boxes.append([x.min(), y.min(), x.max(), y.max()])  # cls, xyxy
+    return xyxy2xywh(np.array(boxes))  # cls, xywh
+
+
+def resample_segments(segments, n=1000):
+    # Up-sample an (n,2) segment
+    for i, s in enumerate(segments):
+        x = np.linspace(0, len(s) - 1, n)
+        xp = np.arange(len(s))
+        segments[i] = np.concatenate([np.interp(x, xp, s[:, i]) for i in range(2)]).reshape(2, -1).T  # segment xy
+    return segments
+
+
 def scale_coords(img1_shape, coords, img0_shape, ratio_pad=None):
     # Rescale coords (xyxy) from img1_shape to img0_shape
     if ratio_pad is None:  # calculate from img0_shape
@@ -190,7 +312,7 @@ def clip_coords(boxes, img_shape):
     boxes[:, 3].clamp_(0, img_shape[0])  # y2
 
 
-def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-9):
+def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, eps=1e-7):
     # Returns the IoU of box1 to box2. box1 is 4, box2 is nx4
     box2 = box2.T
 
@@ -226,7 +348,7 @@ def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, eps=
             elif CIoU:  # https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
                 v = (4 / math.pi ** 2) * torch.pow(torch.atan(w2 / h2) - torch.atan(w1 / h1), 2)
                 with torch.no_grad():
-                    alpha = v / ((1 + eps) - iou + v)
+                    alpha = v / (v - iou + (1 + eps))
                 return iou - (rho2 / c2 + v * alpha)  # CIoU
         else:  # GIoU https://arxiv.org/pdf/1902.09630.pdf
             c_area = cw * ch + eps  # convex area
@@ -268,11 +390,12 @@ def wh_iou(wh1, wh2):
     return inter / (wh1.prod(2) + wh2.prod(2) - inter)  # iou = inter / (area1 + area2 - inter)
 
 
-def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, labels=()):
-    """Performs Non-Maximum Suppression (NMS) on inference results
+def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, multi_label=False,
+                        labels=()):
+    """Runs Non-Maximum Suppression (NMS) on inference results
 
     Returns:
-         detections with shape: nx6 (x1, y1, x2, y2, conf, cls)
+         list of detections, on (n,6) tensor per image [xyxy, conf, cls]
     """
 
     nc = prediction.shape[2] - 5  # number of classes
@@ -284,7 +407,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
     max_nms = 30000  # maximum number of boxes into torchvision.ops.nms()
     time_limit = 10.0  # seconds to quit after
     redundant = True  # require redundant detections
-    multi_label = nc > 1  # multiple labels per box (adds 0.5ms/img)
+    multi_label &= nc > 1  # multiple labels per box (adds 0.5ms/img)
     merge = False  # use merge-NMS
 
     t = time.time()
@@ -358,18 +481,20 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
     return output
 
 
-def strip_optimizer(f='weights/best.pt', s=''):  # from utils.general import *; strip_optimizer()
+def strip_optimizer(f='best.pt', s=''):  # from utils.general import *; strip_optimizer()
     # Strip optimizer from 'f' to finalize training, optionally save as 's'
     x = torch.load(f, map_location=torch.device('cpu'))
-    x['optimizer'] = None
-    x['training_results'] = None
+    if x.get('ema'):
+        x['model'] = x['ema']  # replace model with ema
+    for k in 'optimizer', 'training_results', 'wandb_id', 'ema', 'updates':  # keys
+        x[k] = None
     x['epoch'] = -1
     x['model'].half()  # to FP16
     for p in x['model'].parameters():
         p.requires_grad = False
     torch.save(x, s or f)
     mb = os.path.getsize(s or f) / 1E6  # filesize
-    print('Optimizer stripped from %s,%s %.1fMB' % (f, (' saved as %s,' % s) if s else '', mb))
+    print(f"Optimizer stripped from {f},{(' saved as %s,' % s) if s else ''} {mb:.1f}MB")
 
 
 def print_mutation(hyp, results, yaml_file='hyp_evolved.yaml', bucket=''):
