@@ -1,155 +1,170 @@
-<a href="https://apps.apple.com/app/id1452689527" target="_blank">
-<img src="https://user-images.githubusercontent.com/26833433/98699617-a1595a00-2377-11eb-8145-fc674eb9b1a7.jpg" width="1000"></a>
-&nbsp
+本工程在https://github.com/ultralytics/yolov5/releases/tag/v4.0的基础上，添加数据集格式化代码及基于海思平台修改部分网络结构
 
-![CI CPU testing](https://github.com/ultralytics/yolov5/workflows/CI%20CPU%20testing/badge.svg)
+----
 
-This repository represents Ultralytics open-source research into future object detection methods, and incorporates lessons learned and best practices evolved over thousands of hours of training and evolution on anonymized client datasets. **All code and models are under active development, and are subject to modification or deletion without notice.** Use at your own risk.
+##### 1.环境配置
 
-<img src="https://user-images.githubusercontent.com/26833433/103594689-455e0e00-4eae-11eb-9cdf-7d753e2ceeeb.png" width="1000">** GPU Speed measures end-to-end time per image averaged over 5000 COCO val2017 images using a V100 GPU with batch size 32, and includes image preprocessing, PyTorch FP16 inference, postprocessing and NMS. EfficientDet data from [google/automl](https://github.com/google/automl) at batch size 8.
+Python>=3.6 and pytorch>=1.7 (原作者是要求python>=3.8, 我们在python=3.6.9也可以正常运行)
 
-- **January 5, 2021**: [v4.0 release](https://github.com/ultralytics/yolov5/releases/tag/v4.0): nn.SiLU() activations, [Weights & Biases](https://wandb.ai/) logging, [PyTorch Hub](https://pytorch.org/hub/ultralytics_yolov5/) integration.
-- **August 13, 2020**: [v3.0 release](https://github.com/ultralytics/yolov5/releases/tag/v3.0): nn.Hardswish() activations, data autodownload, native AMP.
-- **July 23, 2020**: [v2.0 release](https://github.com/ultralytics/yolov5/releases/tag/v2.0): improved model definition, training and mAP.
-- **June 22, 2020**: [PANet](https://arxiv.org/abs/1803.01534) updates: new heads, reduced parameters, improved speed and mAP [364fcfd](https://github.com/ultralytics/yolov5/commit/364fcfd7dba53f46edd4f04c037a039c0a287972).
-- **June 19, 2020**: [FP16](https://pytorch.org/docs/stable/nn.html#torch.nn.Module.half) as new default for smaller checkpoints and faster inference [d4c6674](https://github.com/ultralytics/yolov5/commit/d4c6674c98e19df4c40e33a777610a18d1961145).
+pip install -r requirements.txt
 
+------------------
 
-## Pretrained Checkpoints
+##### 2.数据集制作
 
-| Model | size | AP<sup>val</sup> | AP<sup>test</sup> | AP<sub>50</sub> | Speed<sub>V100</sub> | FPS<sub>V100</sub> || params | GFLOPS |
-|---------- |------ |------ |------ |------ | -------- | ------| ------ |------  |  :------: |
-| [YOLOv5s](https://github.com/ultralytics/yolov5/releases)    |640 |36.8     |36.8     |55.6     |**2.2ms** |**455** ||7.3M   |17.0
-| [YOLOv5m](https://github.com/ultralytics/yolov5/releases)    |640 |44.5     |44.5     |63.1     |2.9ms     |345     ||21.4M  |51.3
-| [YOLOv5l](https://github.com/ultralytics/yolov5/releases)    |640 |48.1     |48.1     |66.4     |3.8ms     |264     ||47.0M  |115.4
-| [YOLOv5x](https://github.com/ultralytics/yolov5/releases)    |640 |**50.1** |**50.1** |**68.7** |6.0ms     |167     ||87.7M  |218.8
-| | | | | | | || |
-| [YOLOv5x](https://github.com/ultralytics/yolov5/releases) + TTA |832 |**51.9** |**51.9** |**69.6** |24.9ms |40      ||87.7M  |1005.3
+支持txt图库下载，由参数args.urlPath传入，并完成数据集划分及格式转换，第一次下载图片时查看路径下是否有之前下载的图片，如不需要则删除，只第一次训练时需下载图片。默认训练时加载1.txt，测试时加载2.txt。  
+数据集树状结构为
 
-<!--- 
-| [YOLOv5l6](https://github.com/ultralytics/yolov5/releases)   |640 |49.0     |49.0     |67.4     |4.1ms     |244     ||77.2M  |117.7
-| [YOLOv5l6](https://github.com/ultralytics/yolov5/releases)   |1280 |53.0     |53.0     |70.8     |12.3ms     |81     ||77.2M  |117.7
---->
-
-** AP<sup>test</sup> denotes COCO [test-dev2017](http://cocodataset.org/#upload) server results, all other AP results denote val2017 accuracy.  
-** All AP numbers are for single-model single-scale without ensemble or TTA. **Reproduce mAP** by `python test.py --data coco.yaml --img 640 --conf 0.001 --iou 0.65`  
-** Speed<sub>GPU</sub> averaged over 5000 COCO val2017 images using a GCP [n1-standard-16](https://cloud.google.com/compute/docs/machine-types#n1_standard_machine_types) V100 instance, and includes image preprocessing, FP16 inference, postprocessing and NMS. NMS is 1-2ms/img.  **Reproduce speed** by `python test.py --data coco.yaml --img 640 --conf 0.25 --iou 0.45`  
-** All checkpoints are trained to 300 epochs with default settings and hyperparameters (no autoaugmentation). 
-** Test Time Augmentation ([TTA](https://github.com/ultralytics/yolov5/issues/303)) runs at 3 image sizes. **Reproduce TTA** by `python test.py --data coco.yaml --img 832 --iou 0.65 --augment` 
-
-
-## Requirements
-
-Python 3.8 or later with all [requirements.txt](https://github.com/ultralytics/yolov5/blob/master/requirements.txt) dependencies installed, including `torch>=1.7`. To install run:
-```bash
-$ pip install -r requirements.txt
+```
+yolov5
+├── data   
+│   ├── images   存放图片
+│   │   ├── train
+│   │   ├── val
+│   │   └── test
+│   └── labels   存放标签
+│   │   ├── train
+│   │   ├── val
+│   │   └── test
+└── others
 ```
 
+----
 
-## Tutorials
+##### 3.配置文件
 
-* [Train Custom Data](https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data)&nbsp; 🚀 RECOMMENDED
-* [Weights & Biases Logging](https://github.com/ultralytics/yolov5/issues/1289)&nbsp; 🌟 NEW
-* [Multi-GPU Training](https://github.com/ultralytics/yolov5/issues/475)
-* [PyTorch Hub](https://github.com/ultralytics/yolov5/issues/36)&nbsp; ⭐ NEW
-* [ONNX and TorchScript Export](https://github.com/ultralytics/yolov5/issues/251)
-* [Test-Time Augmentation (TTA)](https://github.com/ultralytics/yolov5/issues/303)
-* [Model Ensembling](https://github.com/ultralytics/yolov5/issues/318)
-* [Model Pruning/Sparsity](https://github.com/ultralytics/yolov5/issues/304)
-* [Hyperparameter Evolution](https://github.com/ultralytics/yolov5/issues/607)
-* [Transfer Learning with Frozen Layers](https://github.com/ultralytics/yolov5/issues/1314)&nbsp; ⭐ NEW
-* [TensorRT Deployment](https://github.com/wang-xinyu/tensorrtx)
+1. 超参： ./data/hyp.scratch.yaml   (可自行修改超参，如学习率，数据增强所用的超参等)
+2. 模型配置： ./models/yolov5s.yaml  (可根据所需更改模型结构，例如海思芯片不支持Focus结构，可更改Focus为一个卷积层)
+3. 数据集： ./data/ab.yaml   (根据自己数据集**更改图片路径**，类别及类别数)
 
+---
 
-## Environments
+##### 4.训练
 
-YOLOv5 may be run in any of the following up-to-date verified environments (with all dependencies including [CUDA](https://developer.nvidia.com/cuda)/[CUDNN](https://developer.nvidia.com/cudnn), [Python](https://www.python.org/) and [PyTorch](https://pytorch.org/) preinstalled):
+./weights 下载预训练模型保存到该路径，考虑到模型大小，目前只下载 yolov5s.pt
 
-- **Google Colab Notebook** with free GPU: <a href="https://colab.research.google.com/github/ultralytics/yolov5/blob/master/tutorial.ipynb"><img src="https://colab.research.google.com/assets/colab-badge.svg" alt="Open In Colab"></a>
-- **Kaggle Notebook** with free GPU: [https://www.kaggle.com/ultralytics/yolov5](https://www.kaggle.com/ultralytics/yolov5)
-- **Google Cloud** Deep Learning VM. See [GCP Quickstart Guide](https://github.com/ultralytics/yolov5/wiki/GCP-Quickstart) 
-- **Docker Image** https://hub.docker.com/r/ultralytics/yolov5. See [Docker Quickstart Guide](https://github.com/ultralytics/yolov5/wiki/Docker-Quickstart) ![Docker Pulls](https://img.shields.io/docker/pulls/ultralytics/yolov5?logo=docker)
+python train.py <font color=#0099ff>--weights</font> ./weights/yolov5s.pt <font color=#0099ff>--cfg</font> ./models/yolov5s.yaml <font color=#0099ff>--data</font> ./data/ab.yaml <font color=#0099ff>--epochs</font> 1000 
 
+1）稀疏训练
 
-## Inference
+python train.py --sl_factor 6e-4
 
-detect.py runs inference on a variety of sources, downloading models automatically from the [latest YOLOv5 release](https://github.com/ultralytics/yolov5/releases) and saving results to `runs/detect`.
-```bash
-$ python detect.py --source 0  # webcam
-                            file.jpg  # image 
-                            file.mp4  # video
-                            path/  # directory
-                            path/*.jpg  # glob
-                            rtsp://170.93.143.139/rtplive/470011e600ef003a004ee33696235daa  # rtsp stream
-                            rtmp://192.168.1.105/live/test  # rtmp stream
-                            http://112.50.243.8/PLTV/88888888/224/3221225900/1.m3u8  # http stream
-```
+2）剪枝训练
 
-To run inference on example images in `data/images`:
-```bash
-$ python detect.py --source data/images --weights yolov5s.pt --conf 0.25
+python pruning.py  --thres 0.01
 
-Namespace(agnostic_nms=False, augment=False, classes=None, conf_thres=0.25, device='', img_size=640, iou_thres=0.45, save_conf=False, save_dir='runs/detect', save_txt=False, source='data/images/', update=False, view_img=False, weights=['yolov5s.pt'])
-Using torch 1.7.0+cu101 CUDA:0 (Tesla V100-SXM2-16GB, 16130MB)
+3）模型微调
 
-Downloading https://github.com/ultralytics/yolov5/releases/download/v3.1/yolov5s.pt to yolov5s.pt... 100%|██████████████| 14.5M/14.5M [00:00<00:00, 21.3MB/s]
+python train.py --ft_pruned
 
-Fusing layers... 
-Model Summary: 232 layers, 7459581 parameters, 0 gradients
-image 1/2 data/images/bus.jpg: 640x480 4 persons, 1 buss, 1 skateboards, Done. (0.012s)
-image 2/2 data/images/zidane.jpg: 384x640 2 persons, 2 ties, Done. (0.012s)
-Results saved to runs/detect/exp
-Done. (0.113s)
-```
-<img src="https://user-images.githubusercontent.com/26833433/97107365-685a8d80-16c7-11eb-8c2e-83aac701d8b9.jpeg" width="500">  
+---
 
-### PyTorch Hub
+##### 5.测试
 
-To run **batched inference** with YOLOv5 and [PyTorch Hub](https://github.com/ultralytics/yolov5/issues/36):
-```python
-import torch
-from PIL import Image
+python detect.py <font color=#0099ff> --source </font> 图片路径 <font color=#0099ff> --weights</font> 训练后保存的模型  <font color=#0099ff>--conf</font> 0.25
 
-# Model
-model = torch.hub.load('ultralytics/yolov5', 'yolov5s', pretrained=True)
+---
 
-# Images
-img1 = Image.open('zidane.jpg')
-img2 = Image.open('bus.jpg')
-imgs = [img1, img2]  # batched list of images
+##### 6.自动计算
+1. 运行 get_gt_txt.py 生成真实标签.(需传入参数--testPath 测试机图片路径,即跟detect.py 中的 --source 一样) 
+2. 生成预测标签. 即在第五步测试时，**--save-txt, --save-conf 要设置为True** 即：   
+python detect.py <font color=#0099ff> --source </font> 图片路径 <font color=#0099ff> --weights</font> 训练后保存的模型  <font color=#0099ff>--conf</font> 0.25 --save-txt --save-conf
+3. 运行 auto_analysis.py 结果保存于result文件夹下（需传入参数--testPath 测试机图片路径,即跟detect.py 中的 --source 一样）。   
+在测试阶段 detect.py --source 设置测试图片路径，而get_ge_txt.py --testPath 需定位到测试图片路径。默认为'./test/img'  
+---
 
-# Inference
-result = model(imgs)
-```
+##### 7.模型转换   
+模型转换[参考](https://github.com/Wulingtian/yolov5_caffe)   
+为方便海思移植，修改网络结构  
+把yolov5s.yaml的focus层替换为conv层（stride为2），upsample层替换为deconv层,修改如下所示：   
 
 
-## Training
 
-Run commands below to reproduce results on [COCO](https://github.com/ultralytics/yolov5/blob/master/data/scripts/get_coco.sh) dataset (dataset auto-downloads on first use). Training times for YOLOv5s/m/l/x are 2/4/6/8 days on a single V100 (multi-GPU times faster). Use the largest `--batch-size` your GPU allows (batch sizes shown for 16 GB devices).
-```bash
-$ python train.py --data coco.yaml --cfg yolov5s.yaml --weights '' --batch-size 64
-                                         yolov5m                                40
-                                         yolov5l                                24
-                                         yolov5x                                16
-```
-<img src="https://user-images.githubusercontent.com/26833433/90222759-949d8800-ddc1-11ea-9fa1-1c97eed2b963.png" width="900">
+    backbone:
+          # [from, number, module, args]    
+          #Fous层[[-1, 1, Focus, [64, 3]],  # 0-P1/2   
+           [[-1, 1, conv, [128, 3, 2]],  # 0-P1/2   
+           [-1, 1, Conv, [128, 3, 2]],  # 1-P2/4   
+           [-1, 3, C3, [128]],   
+           [-1, 1, Conv, [256, 3, 2]],  # 3-P3/8   
+           [-1, 9, C3, [256]],   
+           [-1, 1, Conv, [512, 3, 2]],  # 5-P4/16   
+           [-1, 9, C3, [512]],   
+           [-1, 1, Conv, [1024, 3, 2]],  # 7-P5/32   
+           [-1, 1, SPP, [1024, [5, 9, 13]]],   
+           [-1, 3, C3, [1024, False]],  # 9   
+          ]
+    
+    head:
+        [[-1, 1, Conv, [512, 1, 1]],   
+        #上采样[-1, 1, nn.Upsample, [None, 2, 'nearest']],   
+        [-1, 1, nn.ConvTranspose2d, [256, 256, 2, 2]],   
+        [[-1, 6], 1, Concat, [1]],  # cat backbone P4   
+        [-1, 3, C3, [512, False]],  # 13   
+    
+        [-1, 1, Conv, [256, 1, 1]],   
+        #上采样[-1, 1, nn.Upsample, [None, 2, 'nearest']],   
+        [-1, 1, nn.ConvTranspose2d, [128, 128, 2, 2]],   
+        [[-1, 4], 1, Concat, [1]],  # cat backbone P3   
+        [-1, 3, C3, [256, False]],  # 17 (P3/8-small)    
+    
+        [-1, 1, Conv, [256, 3, 2]],   
+        [[-1, 14], 1, Concat, [1]],  # cat head P4   
+        [-1, 3, C3, [512, False]],  # 20 (P4/16-medium)   
+    
+        [-1, 1, Conv, [512, 3, 2]],   
+        [[-1, 10], 1, Concat, [1]],  # cat head P5   
+        [-1, 3, C3, [1024, False]],  # 23 (P5/32-large)   
+    
+        [[17, 20, 23], 1, Detect, [nc, anchors]],  # Detect(P3, P4, P5)   
+        ]
 
+ 1. 模型转换 YOLO→onnx
+    - 安装onnx和onnx-simplifier
 
-## Citation
+    ```bash
+    pip install onnx
+    pip install onnx-simplifier
+    ```
+    - 修改配置
 
-[![DOI](https://zenodo.org/badge/264818686.svg)](https://zenodo.org/badge/latestdoi/264818686)
+        修改models/export.py下**opset_version=10**  原为12
 
+    - 模型转换
 
-## About Us
+        - python models/export.py --weights 训练得到的模型权重路径 --img-size 训练图片输入尺寸
 
-Ultralytics is a U.S.-based particle physics and AI startup with over 6 years of expertise supporting government, academic and business clients. We offer a wide range of vision AI services, spanning from simple expert advice up to delivery of fully customized, end-to-end production solutions, including:
-- **Cloud-based AI** systems operating on **hundreds of HD video streams in realtime.**
-- **Edge AI** integrated into custom iOS and Android apps for realtime **30 FPS video inference.**
-- **Custom data training**, hyperparameter evolution, and model exportation to any destination.
+      ```bash
+      python models/export.py --weights ./weights/yolov5s_helmet.pt
+      ```
 
-For business inquiries and professional support requests please visit us at https://www.ultralytics.com. 
+    - 模型简化
 
+        - python -m onnxsim 模型名称 yolov5s-simple.onnx（得到最终简化后的onnx模型）
 
-## Contact
+      ```bash
+      python -m onnxsim ./weights/yolov5s.onnx yolov5s_helmet_simple.onnx
+      ```
+    
+ 2. 模型转换 onnx→caffe   
+    
+    - 确保已经搭建好caffe 
+    - 设置路径   
+        ```bash
+        cd yolov5_onnx2caffe
+        ```
+    - 修改 convertCaffe.py 中路径   
+      
+          设置onnx_path（上面转换得到的简化后onnx模型），prototxt_path（caffe的prototxt保存路径），caffemodel_path（caffe的caffemodel保存路径）
+     - 转换 
+        ```bash
+        python convertCaffe.py
+        ```
+       得到转换后的caffemodel.  
+    
+    
 
-**Issues should be raised directly in the repository.** For business inquiries or professional support requests please visit https://www.ultralytics.com or email Glenn Jocher at glenn.jocher@ultralytics.com. 
+3. todo list
+- [x] 训练样本txt 要支持多个，改成ssd工程类似，测试txt要能指定
+- [x] val集 划分不合理，现在的方式，单个txt的尾部数据全部到了val集。例如multicode
+- [x] detect.py 中load 测试图片函数统一放到load_image.py
