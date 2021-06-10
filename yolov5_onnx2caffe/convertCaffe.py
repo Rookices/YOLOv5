@@ -16,11 +16,33 @@ import onnx2caffe._weightloader as wlr
 from onnx2caffe._error_utils import ErrorHandling
 from onnx import shape_inference
 
+from google.protobuf import text_format
+import caffe.proto.caffe_pb2 as caffe_pb2
+
 transformers = [
     ConstantsToInitializers(),
     ConvAddFuser(),
 ]
 
+def ConvertProtoHisi(caffeprototxt_path, Hisicaffeprototxt_path):
+    net = caffe_pb2.NetParameter()
+    text_format.Merge(open(caffeprototxt_path).read(), net)
+
+    layers = net.layer
+
+    for l in layers:
+        if l.type == 'Permute':
+            # delete Permute layer
+            layers.remove(l)
+        if l.type == 'Reshape':
+            # convert Reshape to nnie mode
+            l.reshape_param.shape.dim[0] = 0
+            l.reshape_param.shape.dim[3] *= l.reshape_param.shape.dim[4]
+            l.reshape_param.shape.dim.pop(4)
+    # get new hisi prototxt
+    f = open(Hisicaffeprototxt_path, 'w')
+    f.write(str(net))
+    f.close()
 
 def convertToCaffe(graph, prototxt_save_path, caffe_model_save_path, exis_focus=False, focus_concat_name=None, focus_conv_name=None):  # 如果有 focus 层，自己添加参数
     exist_edges = []
@@ -148,6 +170,7 @@ if __name__ == "__main__":
 
     onnx_path = "/home/willer/yolov5-4.0/models/models_not_focus/yolov5s-simple.onnx"
     prototxt_path = "./yolov5s-4.0-not-focus.prototxt"
+    hisiprototxt_path = "./yolov5s-hisi.prototxt"
     caffemodel_path = "./yolov5s-4.0-not-focus.caffemodel"
 
     #onnx_path = "/home/willer/nanodet_concat/tools/nanodet-simple.onnx"
@@ -157,6 +180,7 @@ if __name__ == "__main__":
     graph = getGraph(onnx_path)
 
     convertToCaffe(graph, prototxt_path, caffemodel_path, exis_focus=True, focus_concat_name="Concat_40", focus_conv_name="Conv_41")
+    ConvertProtoHisi(prototxt_path, hisiprototxt_path)
     #convertToCaffe(graph, prototxt_path, caffemodel_path, exis_focus=True, focus_concat_name="Concat_40")
     #convertToCaffe(graph, prototxt_path, caffemodel_path, focus_conv_name="Conv_41")
     #convertToCaffe(graph, prototxt_path, caffemodel_path)

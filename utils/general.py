@@ -391,7 +391,7 @@ def wh_iou(wh1, wh2):
 
 
 def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, multi_label=False,
-                        labels=()):
+                        labels=(), distill=False):
     """Runs Non-Maximum Suppression (NMS) on inference results
 
     Returns:
@@ -400,6 +400,10 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
 
     nc = prediction.shape[2] - 5  # number of classes
     xc = prediction[..., 4] > conf_thres  # candidates
+
+    # Checks
+    assert 0 <= conf_thres <= 1, f'Invalid Confidence threshold {conf_thres}, valid values are between 0.0 and 1.0'
+    assert 0 <= iou_thres <= 1, f'Invalid IoU {iou_thres}, valid values are between 0.0 and 1.0'
 
     # Settings
     min_wh, max_wh = 2, 4096  # (pixels) minimum and maximum box width and height
@@ -431,18 +435,29 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
             continue
 
         # Compute conf
-        x[:, 5:] *= x[:, 4:5]  # conf = obj_conf * cls_conf
-
+        if distill:
+            # x[:, 5:] = x[:, 5:].sigmoid() * x[:, 4:5]
+            logits = x[:, 5:].sigmoid() * x[:, 4:5]
+        else:
+            # x[:, 5:] *= x[:, 4:5] # conf = obj_conf * cls_conf
+            logits = x[:, 5:] * x[:, 4:5]
         # Box (center x, center y, width, height) to (x1, y1, x2, y2)
         box = xywh2xyxy(x[:, :4])
 
         # Detections matrix nx6 (xyxy, conf, cls)
         if multi_label:
-            i, j = (x[:, 5:] > conf_thres).nonzero(as_tuple=False).T
+            if distill:
+                i, j = (logits > conf_thres).nonzero(as_tuple=False).T
+            else:
+                i, j = (x[:, 5:] > conf_thres).nonzero(as_tuple=False).T
             x = torch.cat((box[i], x[i, j + 5, None], j[:, None].float()), 1)
         else:  # best class only
-            conf, j = x[:, 5:].max(1, keepdim=True)
-            x = torch.cat((box, conf, j.float()), 1)[conf.view(-1) > conf_thres]
+            if distill:
+                conf, j = x[:, 5:].sigmoid().max(1, keepdim=True)
+            else:
+                conf, j = x[:, 5:].max(1, keepdim=True)
+            logits = x[:, 5:]
+            x = torch.cat((box, conf, j.float(), logits), 1)[conf.view(-1) > conf_thres]
 
         # Filter by class
         if classes is not None:
