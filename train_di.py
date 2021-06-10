@@ -573,8 +573,8 @@ if __name__ == '__main__':
     #distill
     parser.add_argument('--distill', action='store_true',help='cache images for faster training')
     parser.add_argument('--t_weights', type=str, default='weights/yolov5s.pt', help='initial tweights path')
-    parser.add_argument('--dist_loss', type=str, default='l2', help='using kl/l2 loss in distillation')
-    parser.add_argument('--temperature', type=int, default=4, help='temperature in distilling training')
+    parser.add_argument('--dist_loss', type=str, default='kl', help='using kl/l2 loss in distillation')
+    parser.add_argument('--temperature', type=int, default=0, help='temperature in distilling training')
     opt = parser.parse_args()
 
     # Set DDP variables

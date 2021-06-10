@@ -36,7 +36,7 @@ yolov5
 1. 超参(--hyp)： ./data/hyp.scratch.yaml   (可自行修改超参，如学习率，数据增强所用的超参等)
 2. 模型配置(--cfg)： ./models/yolov5s.yaml  (为方便海思移植，已将focus层替换为conv层，upsample层替换为deconv层，且deconv层支持yolo缩放)
 3. 数据集(--data)： ./data/ab.yaml   (根据自己数据集**更改图片路径**，类别及类别数)
-4. 其他模型保存策略(--other-save)：可打开包含基于最优F1以及recall的模型保存方式
+4. 其他模型保存策略(--other_save)：可打开包含基于最优F1以及Wrecall的模型保存方式
 P.S. 在训练和测试阶段，无特殊情况，配置文件均为上述默认设置。
 ---
 
@@ -46,17 +46,27 @@ P.S. 在训练和测试阶段，无特殊情况，配置文件均为上述默认
    ```
    python train.py --weights ./weights/yolov5s.pt --epochs 1000 
    ```
+   
 2. 稀疏训练，训练次数以能恢复原模型精度为准
    ```
    python train.py --sl_factor <设定稀疏率，建议6e-4> --weights <半精度模型原始模型> --epochs 500
    ```
-3. 剪枝，剪枝模型路径下会自动生成剪枝稀疏度分布图
+   
+3. 剪枝，剪枝模型路径下会自动生成剪枝稀疏度分布图W
    ```
    python pruning.py --weights <稀疏后模型> --save_path <剪枝模型保存路径> --thres <默认剪枝阈值0.01>
    ```
+   
 4. 模型微调
+   
    ```
    python train.py --weights <剪枝后模型> --epochs 500 --ft_pruned
+   ```
+   
+5. 知识蒸馏
+
+   ```
+   python train_di.py --weights <Student模型> --t_weights <Teacher模型> --distill --temperature 4 --dist_loss kl --epochs 500 
    ```
 ---
 
@@ -103,9 +113,9 @@ P.S. 在训练和测试阶段，无特殊情况，配置文件均为上述默认
 2. onnx简化
    
    python -m onnxsim <onnx模型> <简化模型保存路径>
-    
+   
 3. onnx2caffe   
-    
+   
    1）修改 ./yolov5_onnxcaffe/convertCaffe.py
    ```
         onnx_path        <onnx简化模型>
@@ -114,7 +124,7 @@ P.S. 在训练和测试阶段，无特殊情况，配置文件均为上述默认
    ```
 
    2）python yolov5_onnxcaffe/convertCaffe.py
- ---
+---
 
 ##### todo list
 - [x] 训练样本txt 要支持多个，改成ssd工程类似，测试txt要能指定
