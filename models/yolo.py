@@ -1,12 +1,9 @@
-# YOLOv5 YOLO-specific modules
-
 import argparse
 import logging
 import sys
 from copy import deepcopy
-from pathlib import Path
 
-sys.path.append(Path(__file__).parent.parent.absolute().__str__())  # to run '$ python *.py' files in subdirectories
+sys.path.append('./')  # to run '$ python *.py' files in subdirectories
 logger = logging.getLogger(__name__)
 
 from models.common import *
@@ -73,7 +70,7 @@ class Model(nn.Module):
             import yaml  # for torch hub
             self.yaml_file = Path(cfg).name
             with open(cfg) as f:
-                self.yaml = yaml.safe_load(f)  # model dict
+                self.yaml = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
 
         # Define model
         ch = self.yaml['ch'] = self.yaml.get('ch', ch)  # input channels
@@ -85,7 +82,7 @@ class Model(nn.Module):
             self.yaml['anchors'] = round(anchors)  # override yaml value
         self.model, self.save = parse_model(deepcopy(self.yaml), ch=[ch])  # model, savelist
         self.names = [str(i) for i in range(self.yaml['nc'])]  # default names
-        # logger.info([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
+        # print([x.shape for x in self.forward(torch.zeros(1, ch, 64, 64))])
 
         # Build strides, anchors
         m = self.model[-1]  # Detect()
@@ -96,7 +93,7 @@ class Model(nn.Module):
             check_anchor_order(m)
             self.stride = m.stride
             self._initialize_biases()  # only run once
-            # logger.info('Strides: %s' % m.stride.tolist())
+            # print('Strides: %s' % m.stride.tolist())
 
         # Init weights, biases
         initialize_weights(self)
@@ -135,15 +132,13 @@ class Model(nn.Module):
                 for _ in range(10):
                     _ = m(x)
                 dt.append((time_synchronized() - t) * 100)
-                if m == self.model[0]:
-                    logger.info(f"{'time (ms)':>10s} {'GFLOPS':>10s} {'params':>10s}  {'module'}")
-                logger.info(f'{dt[-1]:10.2f} {o:10.2f} {m.np:10.0f}  {m.type}')
+                print('%10.1f%10.0f%10.1fms %-40s' % (o, m.np, dt[-1], m.type))
 
             x = m(x)  # run
             y.append(x if m.i in self.save else None)  # save output
 
         if profile:
-            logger.info('%.1fms total' % sum(dt))
+            print('%.1fms total' % sum(dt))
         return x
 
     def _initialize_biases(self, cf=None):  # initialize biases into Detect(), cf is class frequency
@@ -160,16 +155,15 @@ class Model(nn.Module):
         m = self.model[-1]  # Detect() module
         for mi in m.m:  # from
             b = mi.bias.detach().view(m.na, -1).T  # conv.bias(255) to (3,85)
-            logger.info(
-                ('%6g Conv2d.bias:' + '%10.3g' * 6) % (mi.weight.shape[1], *b[:5].mean(1).tolist(), b[5:].mean()))
+            print(('%6g Conv2d.bias:' + '%10.3g' * 6) % (mi.weight.shape[1], *b[:5].mean(1).tolist(), b[5:].mean()))
 
     # def _print_weights(self):
     #     for m in self.model.modules():
     #         if type(m) is Bottleneck:
-    #             logger.info('%10.3g' % (m.w.detach().sigmoid() * 2))  # shortcut weights
+    #             print('%10.3g' % (m.w.detach().sigmoid() * 2))  # shortcut weights
 
     def fuse(self):  # fuse model Conv2d() + BatchNorm2d() layers
-        logger.info('Fusing layers... ')
+        print('Fusing layers... ')
         for m in self.model.modules():
             if type(m) is Conv and hasattr(m, 'bn'):
                 m.conv = fuse_conv_and_bn(m.conv, m.bn)  # update conv
@@ -181,19 +175,19 @@ class Model(nn.Module):
     def nms(self, mode=True):  # add or remove NMS module
         present = type(self.model[-1]) is NMS  # last layer is NMS
         if mode and not present:
-            logger.info('Adding NMS... ')
+            print('Adding NMS... ')
             m = NMS()  # module
             m.f = -1  # from
             m.i = self.model[-1].i + 1  # index
             self.model.add_module(name='%s' % m.i, module=m)  # add
             self.eval()
         elif not mode and present:
-            logger.info('Removing NMS... ')
+            print('Removing NMS... ')
             self.model = self.model[:-1]  # remove
         return self
 
     def autoshape(self):  # add autoShape module
-        logger.info('Adding autoShape... ')
+        print('Adding autoShape... ')
         m = autoShape(self)  # wrap model
         copy_attr(m, self, include=('yaml', 'nc', 'hyp', 'names', 'stride'), exclude=())  # copy attributes
         return m
@@ -219,17 +213,39 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in [Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP,
-                 C3, C3TR]:
+                 C3, C3_pruning_1, C3_pruning_3, C3_pruning_noshort_1, SPP_pruning]:
             c1, c2 = ch[f], args[0]
-            if c2 != no:  # if not output
-                c2 = make_divisible(c2 * gw, 8)
-
+            # # 卷积层输入通道数自动向上补至8倍数，迭代剪枝时需注释
+            # if c2 != no:  # if not output
+            #     c2 = make_divisible(c2 * gw, 8)
+            #
+            # # 剪枝后新定义层的输入通道数自动向上补至8倍数，迭代剪枝时需注释
+            # if m in [SPP_pruning,C3_pruning_1, C3_pruning_3, C3_pruning_noshort_1]:
+            #     args[1] = make_divisible(args[1], 8)
+            #     if m in [C3_pruning_1, C3_pruning_3]:
+            #         b = args[2]
+            #         args[2] = make_divisible(args[2], 8)
+            #         args[3] = make_divisible(args[3]*b, 8)/args[2]
+            #         if m in [C3_pruning_3]:
+            #             args[4] = make_divisible(args[4]*b, 8)/args[2]
+            #             args[5] = make_divisible(args[5]*b, 8)/args[2]
+            #     elif m in [C3_pruning_noshort_1]:
+            #         args[2] = make_divisible(args[2], 8)
+            #         b = args[3]
+            #         args[3] = make_divisible(args[3], 8)
+            #         args[4] = float(make_divisible(args[4]*b, 8)/args[3])
             args = [c1, c2, *args[1:]]
-            if m in [BottleneckCSP, C3, C3TR]:
+
+            if m in [BottleneckCSP, C3]:
                 args.insert(2, n)  # number of repeats
                 n = 1
+
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
+        # # 反卷积层通道数自动向上补至8倍数，迭代剪枝时需注释
+        # elif m is nn.ConvTranspose2d:
+        #     args[0] = make_divisible(args[0] * gw, 8)
+        #     args[1] = make_divisible(args[1] * gw, 8)
         elif m is Concat:
             c2 = sum([ch[x] for x in f])
         elif m is Detect:
@@ -258,7 +274,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='yolov5s.yaml', help='model.yaml')
+    parser.add_argument('--cfg', type=str, default='../models/yolov5s_pruning0.01.yaml', help='model.yaml')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     opt = parser.parse_args()
     opt.cfg = check_file(opt.cfg)  # check file
@@ -270,12 +286,12 @@ if __name__ == '__main__':
     model.train()
 
     # Profile
-    # img = torch.rand(8 if torch.cuda.is_available() else 1, 3, 320, 320).to(device)
+    # img = torch.rand(8 if torch.cuda.is_available() else 1, 3, 640, 640).to(device)
     # y = model(img, profile=True)
 
-    # Tensorboard (not working https://github.com/ultralytics/yolov5/issues/2898)
+    # Tensorboard
     # from torch.utils.tensorboard import SummaryWriter
-    # tb_writer = SummaryWriter('.')
-    # logger.info("Run 'tensorboard --logdir=models' to view tensorboard at http://localhost:6006/")
-    # tb_writer.add_graph(torch.jit.trace(model, img, strict=False), [])  # add model graph
+    # tb_writer = SummaryWriter()
+    # print("Run 'tensorboard --logdir=models/runs' to view tensorboard at http://localhost:6006/")
+    # tb_writer.add_graph(model.model, img)  # add model to tensorboard
     # tb_writer.add_image('test', img[0], dataformats='CWH')  # add model to tensorboard

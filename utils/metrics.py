@@ -15,6 +15,15 @@ def fitness(x):
     return (x[:, :4] * w).sum(1)
 
 
+def calculate_f1(x):
+    return float(2*x[0]*x[1]/(x[0]+x[1]+1e-16))
+
+
+def calculate_recall(x):
+    w = [0.0, 0.5, 0.1, 0.5]  # weights for [P, R, mAP@0.5, mAP@0.5:0.95]
+    return (x[:, :4] * w).sum(1)
+
+
 def ap_per_class(tp, conf, pred_cls, target_cls, plot=False, save_dir='.', names=()):
     """ Compute the average precision, given the recall and precision curves.
     Source: https://github.com/rafaelpadilla/Object-Detection-Metrics.
@@ -145,7 +154,7 @@ class ConfusionMatrix:
         for i, gc in enumerate(gt_classes):
             j = m0 == i
             if n and sum(j) == 1:
-                self.matrix[detection_classes[m1[j]], gc] += 1  # correct
+                self.matrix[gc, detection_classes[m1[j]]] += 1  # correct
             else:
                 self.matrix[self.nc, gc] += 1  # background FP
 

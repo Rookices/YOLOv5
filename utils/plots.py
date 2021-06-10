@@ -26,23 +26,12 @@ matplotlib.rc('font', **{'size': 11})
 matplotlib.use('Agg')  # for writing to files only
 
 
-class Colors:
-    # Ultralytics color palette https://ultralytics.com/
-    def __init__(self):
-        self.palette = [self.hex2rgb(c) for c in matplotlib.colors.TABLEAU_COLORS.values()]
-        self.n = len(self.palette)
-
-    def __call__(self, i, bgr=False):
-        c = self.palette[int(i) % self.n]
-        return (c[2], c[1], c[0]) if bgr else c
-
-    @staticmethod
-    def hex2rgb(h):  # rgb order (PIL)
+def color_list():
+    # Return first 10 plt colors as (r,g,b) https://stackoverflow.com/questions/51350872/python-from-color-name-to-rgb
+    def hex2rgb(h):
         return tuple(int(h[1 + i:1 + i + 2], 16) for i in (0, 2, 4))
 
-
-colors = Colors()  # create instance for 'from utils.plots import colors'
-
+    return [hex2rgb(h) for h in matplotlib.colors.TABLEAU_COLORS.values()]  # or BASE_ (8), CSS4_ (148), XKCD_ (949)
 
 def hist2d(x, y, n=100):
     # 2d histogram used in labels.png and evolve.png
