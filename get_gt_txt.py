@@ -4,7 +4,7 @@ from tqdm import tqdm
 import argparse
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--testPath', type=str, default='test/img', help='the path of test images')
+    parser.add_argument('--testPath', type=str, default='test/img/', help='the path of test images')
 
     opt = parser.parse_args()
     # path_xml = './test/xml/'             # 测试集标签文件路径

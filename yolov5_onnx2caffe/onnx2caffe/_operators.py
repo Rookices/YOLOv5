@@ -598,7 +598,7 @@ def _convert_conv_transpose(node, graph, err):  # 反卷积
 
     layer = myf('Deconvolution', node_name, [input_name], [output_name],
                 convolution_param=dict(
-                    num_output=W.shape[0],  # 此处我做了更改，分组卷积需要注意
+                    num_output=W.shape[1],  # 此处我做了更改，分组卷积需要注意
                     kernel_h=kernel_shape[0], kernel_w=kernel_shape[1],
                     stride_h=strides[0], stride_w=strides[1],
                     group=groups,

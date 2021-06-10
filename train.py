@@ -268,7 +268,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
         if pretrained and not opt.ft_pruned:
             last_ = 'last_' + str(epoch) + '.pt'
             best_mAP = 'best_map' + '.pt'
-            if opt.others:
+            if opt.other_save:
                 # F1
                 best_F1 = 'best_f1' + '.pt'
                 best1 = wdir / best_F1
@@ -276,6 +276,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 best_Recall = 'best_recall' + '.pt'
                 best2 = wdir / best_Recall
             last = wdir / last_
+            # sr_cos
+            if opt.sr_cos:
+                hyp['sl'] = ((((1 + math.cos(epoch * math.pi / epochs)) / 2) ** 1.0) * 0.8 + 0.2) * opt.sl_factor
             best = wdir / best_mAP
         model.train()
 
@@ -448,7 +451,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 torch.save(ckpt, last)
                 if best_fitness == fi:
                     torch.save(ckpt, best)
-                if opt.others:
+                if opt.other_save:
                     if best_f1 == f1:
                         torch.save(ckpt, best1)
                     if best_recall == recall:
@@ -461,7 +464,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     if rank in [-1, 0]:
         # Strip optimizers
         final = best if best.exists() else last  # final model
-        for f in ((last, best) if not opt.others else (last, best, best1, best2)):
+        for f in ((last, best) if not opt.other_save else (last, best, best1, best2)):
             if f.exists():
                 strip_optimizer(f)
         if opt.bucket:
@@ -503,8 +506,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='weights/ft0.01.pt', help='initial weights path')
-    parser.add_argument('--cfg', type=str, default='models/yolov5s_pruning0.01.yaml', help='model.yaml path')
+    parser.add_argument('--weights', type=str, default='weights/yolov5s.pt', help='initial weights path')
+    parser.add_argument('--cfg', type=str, default='models/yolov5s_from0.08.yaml', help='model.yaml path')
     parser.add_argument('--data', type=str, default='data/ab.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='data/hyp.scratch.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=1)
@@ -535,9 +538,10 @@ if __name__ == '__main__':
     parser.add_argument('--quad', action='store_true', help='quad dataloader')
     parser.add_argument('--linear-lr', action='store_true', help='linear LR')
     parser.add_argument('--urlPath', default='./urlTxtPath', type=str, help='image url txt Path')
-    parser.add_argument('--others', action='store_true', help='save .pt for best_F1 and best_recall')
+    parser.add_argument('--other_save', action='store_true', help='save .pt for best_F1 and best_recall')
     # pruning
     parser.add_argument('--sl_factor', type=float, default=0, help='sparse learning factor,suggest=6e-4')
+    parser.add_argument('--sr_cos', action='store_true', help='Cosine Sparsity rate')
     parser.add_argument('--ft_pruned', action='store_true', help='fine-tune pruned model')
     opt = parser.parse_args()
 

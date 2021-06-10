@@ -1,4 +1,3 @@
-"遍历目录下所有模型并输出bn分析图"
 import os
 import argparse
 import numpy as np
@@ -76,13 +75,15 @@ def getFileName1(path,suffix):
     for i in f_list:
         # os.path.splitext():分离文件名与扩展名
         if os.path.splitext(i)[1] ==suffix:
-            input_template_All.append(i)
+            if i.startswith('last'):
+                # 筛选所有last模型
+                input_template_All.append(i)
     return input_template_All
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', default="/home/vision-001/lukaijie/yolov5_pruning/runs/train/con_new6e-4_1/weights/", type=str, help='')
+    parser.add_argument('--weights', default="./bn/", type=str, help='模型所在根目录')
     parser.add_argument('--save_path', default="", type=str, help='')
     opt = parser.parse_args()
 
