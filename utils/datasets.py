@@ -20,13 +20,13 @@ from PIL import Image, ExifTags
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from utils.general import check_requirements, xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
-    resample_segments, clean_str
+from utils.general import xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, resample_segments, \
+    clean_str
 from utils.torch_utils import torch_distributed_zero_first
 
 # Parameters
 help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
-img_formats = ['bmp', 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'dng', 'webp', 'mpo']  # acceptable image suffixes
+img_formats = ['bmp', 'jpg', 'jpeg', 'png', 'tif', 'tiff', 'dng', 'webp']  # acceptable image suffixes
 vid_formats = ['mov', 'avi', 'mp4', 'mpg', 'mpeg', 'm4v', 'wmv', 'mkv']  # acceptable video suffixes
 logger = logging.getLogger(__name__)
 
@@ -272,23 +272,17 @@ class LoadStreams:  # multiple IP or RTSP cameras
         n = len(sources)
         self.imgs = [None] * n
         self.sources = [clean_str(x) for x in sources]  # clean source names for later
-        for i, s in enumerate(sources):  # index, source
-            # Start thread to read frames from video stream
+        for i, s in enumerate(sources):
+            # Start the thread to read frames from the video stream
             print(f'{i + 1}/{n}: {s}... ', end='')
-            if 'youtube.com/' in s or 'youtu.be/' in s:  # if source is YouTube video
-                check_requirements(('pafy', 'youtube_dl'))
-                import pafy
-                s = pafy.new(s).getbest(preftype="mp4").url  # YouTube URL
-            s = eval(s) if s.isnumeric() else s  # i.e. s = '0' local webcam
-            cap = cv2.VideoCapture(s)
+            cap = cv2.VideoCapture(eval(s) if s.isnumeric() else s)
             assert cap.isOpened(), f'Failed to open {s}'
             w = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
             h = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
-            self.fps = cap.get(cv2.CAP_PROP_FPS) % 100
-
+            fps = cap.get(cv2.CAP_PROP_FPS) % 100
             _, self.imgs[i] = cap.read()  # guarantee first frame
             thread = Thread(target=self.update, args=([i, cap]), daemon=True)
-            print(f' success ({w}x{h} at {self.fps:.2f} FPS).')
+            print(f' success ({w}x{h} at {fps:.2f} FPS).')
             thread.start()
         print('')  # newline
 
@@ -309,7 +303,7 @@ class LoadStreams:  # multiple IP or RTSP cameras
                 success, im = cap.retrieve()
                 self.imgs[index] = im if success else self.imgs[index] * 0
                 n = 0
-            time.sleep(1 / self.fps)  # wait time
+            time.sleep(0.01)  # wait time
 
     def __iter__(self):
         self.count = -1
@@ -391,7 +385,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         # Display cache
         nf, nm, ne, nc, n = cache.pop('results')  # found, missing, empty, corrupted, total
         if exists:
-            d = f"Scanning '{cache_path}' images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupted"
+            d = f"Scanning '{cache_path}' for images and labels... {nf} found, {nm} missing, {ne} empty, {nc} corrupted"
             tqdm(None, desc=prefix + d, total=n, initial=n)  # display cache results
         assert nf > 0 or not augment, f'{prefix}No labels in {cache_path}. Can not train without labels. See {help_url}'
 
@@ -449,7 +443,6 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 self.imgs[i], self.img_hw0[i], self.img_hw[i] = x  # img, hw_original, hw_resized = load_image(self, i)
                 gb += self.imgs[i].nbytes
                 pbar.desc = f'{prefix}Caching images ({gb / 1E9:.1f}GB)'
-            pbar.close()
 
     def cache_labels(self, path=Path('./labels.cache'), prefix=''):
         # Cache dataset labels, check images and read shapes
@@ -492,9 +485,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 nc += 1
                 print(f'{prefix}WARNING: Ignoring corrupted image and/or label {im_file}: {e}')
 
-            pbar.desc = f"{prefix}Scanning '{path.parent / path.stem}' images and labels... " \
+            pbar.desc = f"{prefix}Scanning '{path.parent / path.stem}' for images and labels... " \
                         f"{nf} found, {nm} missing, {ne} empty, {nc} corrupted"
-        pbar.close()
 
         if nf == 0:
             print(f'{prefix}WARNING: No labels found in {path}. See {help_url}')
@@ -634,10 +626,10 @@ def load_image(self, index):
         img = cv2.imread(path)  # BGR
         assert img is not None, 'Image Not Found ' + path
         h0, w0 = img.shape[:2]  # orig hw
-        r = self.img_size / max(h0, w0)  # ratio
-        if r != 1:  # if sizes are not equal
-            img = cv2.resize(img, (int(w0 * r), int(h0 * r)),
-                             interpolation=cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR)
+        r = self.img_size / max(h0, w0)  # resize image to img_size
+        if r != 1:  # always resize down, only resize up if training with augmentation
+            interp = cv2.INTER_AREA if r < 1 and not self.augment else cv2.INTER_LINEAR
+            img = cv2.resize(img, (int(w0 * r), int(h0 * r)), interpolation=interp)
         return img, (h0, w0), img.shape[:2]  # img, hw_original, hw_resized
     else:
         return self.imgs[index], self.img_hw0[index], self.img_hw[index]  # img, hw_original, hw_resized
@@ -1041,24 +1033,19 @@ def extract_boxes(path='../coco128/'):  # from utils.datasets import *; extract_
                     assert cv2.imwrite(str(f), im[b[1]:b[3], b[0]:b[2]]), f'box failure in {f}'
 
 
-def autosplit(path='../coco128', weights=(0.9, 0.1, 0.0), annotated_only=False):
+def autosplit(path='../coco128', weights=(0.9, 0.1, 0.0)):  # from utils.datasets import *; autosplit('../coco128')
     """ Autosplit a dataset into train/val/test splits and save path/autosplit_*.txt files
-    Usage: from utils.datasets import *; autosplit('../coco128')
-    Arguments
-        path:           Path to images directory
-        weights:        Train, val, test weights (list)
-        annotated_only: Only use images with an annotated txt file
+    # Arguments
+        path:       Path to images directory
+        weights:    Train, val, test weights (list)
     """
     path = Path(path)  # images dir
-    files = sum([list(path.rglob(f"*.{img_ext}")) for img_ext in img_formats], [])  # image files only
+    files = list(path.rglob('*.*'))
     n = len(files)  # number of files
     indices = random.choices([0, 1, 2], weights=weights, k=n)  # assign each image to a split
-
     txt = ['autosplit_train.txt', 'autosplit_val.txt', 'autosplit_test.txt']  # 3 txt files
     [(path / x).unlink() for x in txt if (path / x).exists()]  # remove existing
-
-    print(f'Autosplitting images from {path}' + ', using *.txt labeled images only' * annotated_only)
     for i, img in tqdm(zip(indices, files), total=n):
-        if not annotated_only or Path(img2label_paths([str(img)])[0]).exists():  # check label
+        if img.suffix[1:] in img_formats:
             with open(path / txt[i], 'a') as f:
                 f.write(str(img) + '\n')  # add image to txt file

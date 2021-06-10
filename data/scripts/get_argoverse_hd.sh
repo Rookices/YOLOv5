@@ -2,7 +2,7 @@
 # Argoverse-HD dataset (ring-front-center camera) http://www.cs.cmu.edu/~mengtial/proj/streaming/
 # Download command: bash data/scripts/get_argoverse_hd.sh
 # Train command: python train.py --data argoverse_hd.yaml
-# Default dataset location is next to YOLOv5:
+# Default dataset location is next to /yolov5:
 #   /parent_folder
 #     /argoverse
 #     /yolov5
@@ -12,7 +12,7 @@ d='../argoverse/' # unzip directory
 mkdir $d
 url=https://argoverse-hd.s3.us-east-2.amazonaws.com/
 f=Argoverse-HD-Full.zip
-curl -L $url$f -o $f && unzip -q $f -d $d && rm $f &# download, unzip, remove in background
+wget $url$f -O $f && unzip -q $f -d $d && rm $f &# download, unzip, remove in background
 wait                                              # finish background tasks
 
 cd ../argoverse/Argoverse-1.1/
