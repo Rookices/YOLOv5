@@ -7,7 +7,7 @@ import time
 from copy import deepcopy
 from pathlib import Path
 from threading import Thread
-
+from load_image import load_train_image
 import numpy as np
 import torch.distributed as dist
 import torch.nn as nn
@@ -549,6 +549,13 @@ if __name__ == '__main__':
         check_git_status()
         check_requirements()
 
+    i = 0
+    if os.path.exists('./data/images/train/'):
+        for item in os.listdir('./data/images/train/'):
+            i += 1
+
+    if not os.path.exists('./data/images/train/') or i < 0:
+        load_train_image(opt.urlPath, opt.data)
     # Resume
     if opt.resume:  # resume an interrupted run
         ckpt = opt.resume if isinstance(opt.resume, str) else get_latest_run()  # specified or most recent path
