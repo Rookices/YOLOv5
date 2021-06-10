@@ -109,13 +109,12 @@ class Focus(nn.Module):
         self.conv = Conv(c1 * 4, c2, k, s, p, g, act)
         # self.contract = Contract(gain=2)
 
-    #def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
-        #return self.conv(torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1))
-        # return self.conv(self.contract(x))
-##修改后focus
+    # def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
+    # return self.conv(torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1))
+    # return self.conv(self.contract(x))
+    ##修改后focus
     def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
-        return self.conv(torch.cat([x[..., ::2, ::2], x[..., ::2, 1::2], x[..., 1::2, ::2],  x[..., 1::2, 1::2]], 1))
-
+        return self.conv(torch.cat([x[..., ::2, ::2], x[..., ::2, 1::2], x[..., 1::2, ::2], x[..., 1::2, 1::2]], 1))
 
 
 class Contract(nn.Module):
@@ -310,3 +309,63 @@ class Classify(nn.Module):
     def forward(self, x):
         z = torch.cat([self.aap(y) for y in (x if isinstance(x, list) else [x])], 1)  # cat if list
         return self.flat(self.conv(z))  # flatten to x(b,c2)
+
+
+# for pruning
+class C3_pruning_1(nn.Module):
+    # CSP Bottleneck with 3 convolutions, increasing the degree of freedom of parameters
+    def __init__(self, c1, c2, c3, c4, e, n=1, shortcut=True, g=1): # c2为最终输出, c3 for shortcut, c4为残差块输入, e为残差块内两个卷积核输出之比
+        super(C3_pruning_1, self).__init__()
+        self.cv1 = Conv(c1, c4, 1, 1)
+        self.cv2 = Conv(c1, c3, 1, 1)
+        self.cv3 = Conv(c3 + c4, c2, 1)  # act=FReLU(c2)
+        self.m = nn.Sequential(*[Bottleneck(c4, c4, shortcut, g, e=e) for _ in range(n)])
+        # self.m = nn.Sequential(*[CrossConv(c_, c_, 3, 1, g, 1.0, shortcut) for _ in range(n)])
+
+    def forward(self, x):
+        return self.cv3(torch.cat((self.m(self.cv1(x)), self.cv2(x)), dim=1))
+
+
+class C3_pruning_noshort_1(nn.Module):
+    # 与C3_pruning_1不同点在于，经过残差块后输出通道数发生改变，即c4≠c5。而e为残差块第二个卷积核的输入/输出
+    def __init__(self, c1, c2, c3, c4, c5, e, n=1, shortcut=False, g=1):
+        super(C3_pruning_noshort_1, self).__init__()
+        self.cv1 = Conv(c1, c4, 1, 1)
+        self.cv2 = Conv(c1, c3, 1, 1)
+        self.cv3 = Conv(c3 + c5, c2, 1)  # act=FReLU(c2)
+        # 残差块定义, c5为残差块输出
+        c_ = int(c5 * e)  # hidden channels
+        self.cv4 = Conv(c4, c_, 1, 1)
+        self.cv5 = Conv(c_, c5, 3, 1, g=g)
+
+    def forward(self, x):
+        return self.cv3(torch.cat((self.cv5(self.cv4(self.cv1(x))), self.cv2(x)), dim=1))
+
+
+class C3_pruning_3(nn.Module):
+    # 类同C3_pruning_1, 其中e1 e2 e3分别为各残差块内两个卷积核输出之比
+    def __init__(self, c1, c2, c3, c4, e1, e2, e3, n=1, shortcut=True, g=1):
+        super(C3_pruning_3, self).__init__()
+        self.cv1 = Conv(c1, c4, 1, 1)
+        self.cv2 = Conv(c1, c3, 1, 1)
+        self.cv3 = Conv(c3 + c4, c2, 1)  # act=FReLU(c2)
+        self.m1 = nn.Sequential(*[Bottleneck(c4, c4, shortcut, g, e=e1) for _ in range(n)])
+        self.m2 = nn.Sequential(*[Bottleneck(c4, c4, shortcut, g, e=e2) for _ in range(n)])
+        self.m3 = nn.Sequential(*[Bottleneck(c4, c4, shortcut, g, e=e3) for _ in range(n)])
+        # self.m = nn.Sequential(*[CrossConv(c_, c_, 3, 1, g, 1.0, shortcut) for _ in range(n)])
+
+    def forward(self, x):
+        return self.cv3(torch.cat((self.m3(self.m2(self.m1(self.cv1(x)))), self.cv2(x)), dim=1))
+
+
+class SPP_pruning(nn.Module):
+    # Spatial pyramid pooling layer used in YOLOv3-SPP
+    def __init__(self, c1, c2, c3, k=(5, 9, 13)):   # c2 is output of the last convolution, c3 is the output before spp
+        super(SPP_pruning, self).__init__()
+        self.cv1 = Conv(c1, c3, 1, 1)
+        self.cv2 = Conv(c3 * (len(k) + 1), c2, 1, 1)
+        self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
+
+    def forward(self, x):
+        x = self.cv1(x)
+        return self.cv2(torch.cat([x] + [m(x) for m in self.m], 1))

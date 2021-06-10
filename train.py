@@ -31,6 +31,7 @@ from utils.general import labels_to_class_weights, increment_path, labels_to_ima
     check_requirements, print_mutation, set_logging, one_cycle, colorstr
 from utils.google_utils import attempt_download
 from utils.loss import ComputeLoss
+from utils.metrics import calculate_f1, calculate_recall
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
 
@@ -162,7 +163,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     ema = ModelEMA(model) if rank in [-1, 0] else None
 
     # Resume
-    start_epoch, best_fitness = 0, 0.0
+    start_epoch, best_fitness, best_f1, best_recall = 0, 0.0, 0.0, 0.0
     if pretrained:
         # Optimizer
         if ckpt['optimizer'] is not None:
@@ -266,9 +267,16 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         if pretrained and not opt.ft_pruned:
             last_ = 'last_' + str(epoch) + '.pt'
-            best_ = 'best' + '.pt'
+            best_mAP = 'best_map' + '.pt'
+            if opt.others:
+                # F1
+                best_F1 = 'best_f1' + '.pt'
+                best1 = wdir / best_F1
+                # recall
+                best_Recall = 'best_recall' + '.pt'
+                best2 = wdir / best_Recall
             last = wdir / last_
-            best = wdir / best_
+            best = wdir / best_mAP
         model.train()
 
         # Update image weights (optional)
@@ -381,6 +389,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                                                  batch_size=batch_size * 2,
                                                  imgsz=imgsz_test,
                                                  model=ema.ema,
+                                                 conf_thres=0.5,
+                                                 iou_thres=0.5,
                                                  single_cls=opt.single_cls,
                                                  dataloader=testloader,
                                                  save_dir=save_dir,
@@ -410,9 +420,18 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                     wandb.log({tag: x}, step=epoch, commit=tag == tags[-1])  # W&B
 
             # Update best mAP
-            fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
+            fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95] in [0.0, 0.0, 0.1, 0.9]
+            f1 = calculate_f1(results)  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
+            recall = calculate_recall(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95] in [0.0, 0.5, 0.1, 0.5]
+
             if fi > best_fitness:
                 best_fitness = fi
+
+            if f1 > best_f1:
+                best_f1 = f1
+
+            if recall > best_recall:
+                best_recall = recall
 
             # Save model
             if (not opt.nosave) or (final_epoch and not opt.evolve):  # if save
@@ -427,8 +446,13 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
                 # Save last, best and delete
                 torch.save(ckpt, last)
-                if best_fitness == fi or not opt.ft_pruned:
+                if best_fitness == fi:
                     torch.save(ckpt, best)
+                if opt.others:
+                    if best_f1 == f1:
+                        torch.save(ckpt, best1)
+                    if best_recall == recall:
+                        torch.save(ckpt, best2)
                 del ckpt
 
         # end epoch ----------------------------------------------------------------------------------------------------
@@ -437,7 +461,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     if rank in [-1, 0]:
         # Strip optimizers
         final = best if best.exists() else last  # final model
-        for f in last, best:
+        for f in ((last, best) if not opt.others else (last, best, best1, best2)):
             if f.exists():
                 strip_optimizer(f)
         if opt.bucket:
@@ -479,11 +503,11 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='runs/train/sl5e-4_0.1/weights/best.pt', help='initial weights path')
-    parser.add_argument('--cfg', type=str, default='models/yolov5s_nnie.yaml', help='model.yaml path')
+    parser.add_argument('--weights', type=str, default='weights/ft0.01.pt', help='initial weights path')
+    parser.add_argument('--cfg', type=str, default='models/yolov5s_pruning0.01.yaml', help='model.yaml path')
     parser.add_argument('--data', type=str, default='data/ab.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='data/hyp.scratch.yaml', help='hyperparameters path')
-    parser.add_argument('--epochs', type=int, default=300)
+    parser.add_argument('--epochs', type=int, default=1)
     parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all GPUs')
     parser.add_argument('--img-size', nargs='+', type=int, default=[640, 640], help='[train, test] image sizes')
     parser.add_argument('--rect', action='store_true', help='rectangular training')
@@ -511,6 +535,7 @@ if __name__ == '__main__':
     parser.add_argument('--quad', action='store_true', help='quad dataloader')
     parser.add_argument('--linear-lr', action='store_true', help='linear LR')
     parser.add_argument('--urlPath', default='./urlTxtPath', type=str, help='image url txt Path')
+    parser.add_argument('--others', action='store_true', help='save .pt for best_F1 and best_recall')
     # pruning
     parser.add_argument('--sl_factor', type=float, default=0, help='sparse learning factor,suggest=6e-4')
     parser.add_argument('--ft_pruned', action='store_true', help='fine-tune pruned model')

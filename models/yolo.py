@@ -213,20 +213,39 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
         n = max(round(n * gd), 1) if n > 1 else n  # depth gain
         if m in [Conv, GhostConv, Bottleneck, GhostBottleneck, SPP, DWConv, MixConv2d, Focus, CrossConv, BottleneckCSP,
-                 C3]:
+                 C3, C3_pruning_1, C3_pruning_3, C3_pruning_noshort_1, SPP_pruning]:
             c1, c2 = ch[f], args[0]
-            if c2 != no:  # if not output
-                c2 = make_divisible(c2 * gw, 8)
-
+            # # 卷积层输入通道数自动向上补至8倍数，迭代剪枝时需注释
+            # if c2 != no:  # if not output
+            #     c2 = make_divisible(c2 * gw, 8)
+            #
+            # # 剪枝后新定义层的输入通道数自动向上补至8倍数，迭代剪枝时需注释
+            # if m in [SPP_pruning,C3_pruning_1, C3_pruning_3, C3_pruning_noshort_1]:
+            #     args[1] = make_divisible(args[1], 8)
+            #     if m in [C3_pruning_1, C3_pruning_3]:
+            #         b = args[2]
+            #         args[2] = make_divisible(args[2], 8)
+            #         args[3] = make_divisible(args[3]*b, 8)/args[2]
+            #         if m in [C3_pruning_3]:
+            #             args[4] = make_divisible(args[4]*b, 8)/args[2]
+            #             args[5] = make_divisible(args[5]*b, 8)/args[2]
+            #     elif m in [C3_pruning_noshort_1]:
+            #         args[2] = make_divisible(args[2], 8)
+            #         b = args[3]
+            #         args[3] = make_divisible(args[3], 8)
+            #         args[4] = float(make_divisible(args[4]*b, 8)/args[3])
             args = [c1, c2, *args[1:]]
+
             if m in [BottleneckCSP, C3]:
                 args.insert(2, n)  # number of repeats
                 n = 1
+
         elif m is nn.BatchNorm2d:
             args = [ch[f]]
-        elif m is nn.ConvTranspose2d:
-            args[0] = make_divisible(args[0] * gw, 8)
-            args[1] = make_divisible(args[1] * gw, 8)     
+        # # 反卷积层通道数自动向上补至8倍数，迭代剪枝时需注释
+        # elif m is nn.ConvTranspose2d:
+        #     args[0] = make_divisible(args[0] * gw, 8)
+        #     args[1] = make_divisible(args[1] * gw, 8)
         elif m is Concat:
             c2 = sum([ch[x] for x in f])
         elif m is Detect:
@@ -255,7 +274,7 @@ def parse_model(d, ch):  # model_dict, input_channels(3)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--cfg', type=str, default='yolov5s.yaml', help='model.yaml')
+    parser.add_argument('--cfg', type=str, default='../models/yolov5s_pruning0.01.yaml', help='model.yaml')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     opt = parser.parse_args()
     opt.cfg = check_file(opt.cfg)  # check file
