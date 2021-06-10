@@ -1,5 +1,5 @@
 from models.yolo_distill import Model
-from utils.torch_utils import select_device, intersect_dicts
+from utils.torch_utils import intersect_dicts
 from utils.general import non_max_suppression, scale_coords, xyxy2xywh
 
 import numpy as np
@@ -63,10 +63,8 @@ class TeacherModel(object):
 if __name__ == '__main__':
 
     import cv2
-    from utils.torch_utils import select_device
 
     teacher = TeacherModel(conf_thres=0.01)
-
     teacher.init_model('weights/yolov5s.pt', '0', 1, 20, 'models/yolov5l.yaml')
 
     # img0 = cv2.imread('../xingren.jpg')

@@ -564,7 +564,7 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--quad', action='store_true', help='quad dataloader')
     parser.add_argument('--linear-lr', action='store_true', help='linear LR')
-    parser.add_argument('--urlPath', default='./urlTxtPath', type=str, help='image url txt Path')
+    # parser.add_argument('--urlPath', default='./urlTxtPath', type=str, help='image url txt Path')
     parser.add_argument('--other_save', action='store_true', help='save .pt for best_F1 and best_recall')
     # pruning
     parser.add_argument('--sl_factor', type=float, default=0, help='sparse learning factor,suggest=6e-4')
@@ -588,13 +588,13 @@ if __name__ == '__main__':
     assert opt.dist_loss in [
         "kl", "l2"], "-[ERROR] dist_loss must be in [kl, l2]."
 
-    i = 0
-    if os.path.exists('./data/images/train/'):
-        for item in os.listdir('./data/images/train/'):
-            i += 1
-
-    if not os.path.exists('./data/images/train/') or i < 0:
-        load_train_image(opt.urlPath, opt.data)
+    # i = 0
+    # if os.path.exists('./data/images/train/'):
+    #     for item in os.listdir('./data/images/train/'):
+    #         i += 1
+    #
+    # if not os.path.exists('./data/images/train/') or i < 0:
+    #     load_train_image(opt.urlPath, opt.data)
     # Resume
     if opt.resume:  # resume an interrupted run
         ckpt = opt.resume if isinstance(opt.resume, str) else get_latest_run()  # specified or most recent path
