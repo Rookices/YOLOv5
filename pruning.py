@@ -112,10 +112,10 @@ def channel_prune(ori_model, example_inputs, output_transform, pruned_prob=0.3, 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', default="runs/train/sl_5e-4_new_con/weights/best.pt",type=str, help='')
-    parser.add_argument('--save_path', default="./weights/pruning/600_5e-3/0.1/", type=str, help='')
+    parser.add_argument('--weights', default="./runs/train/con_new6e-4_1/weights/last_449.pt",type=str, help='')
+    parser.add_argument('--save_path', default="./weights/pruning/449_6e-4/0.2", type=str, help='')
     parser.add_argument('-p', '--prob', default=0.5, type=float, help='pruning prob')
-    parser.add_argument('-t', '--thres', default=0.1, type=float, help='pruning thres')
+    parser.add_argument('-t', '--thres', default=0.2, type=float, help='pruning thres')
     opt = parser.parse_args()
 
     weights = opt.weights

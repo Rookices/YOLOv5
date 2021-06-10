@@ -9,7 +9,6 @@ import torch
 import torch.backends.cudnn as cudnn
 from numpy import random
 from load_image import load_test_image
-import numpy as np
 
 from models.experimental import attempt_load
 from utils.datasets import LoadStreams, LoadImages
@@ -64,8 +63,6 @@ def detect(save_img=False):
     if device.type != 'cpu':
         model(torch.zeros(1, 3, imgsz, imgsz).to(device).type_as(next(model.parameters())))  # run once
     t0 = time.time()
-    time_inf1 = []
-    time_2 = []
     for path, img, im0s, vid_cap in dataset:
         img = torch.from_numpy(img).to(device)
         img = img.half() if half else img.float()  # uint8 to fp16/32
@@ -78,9 +75,8 @@ def detect(save_img=False):
         pred = model(img, augment=opt.augment)[0]
 
         # Apply NMS
-        t2 = time_synchronized()
         pred = non_max_suppression(pred, opt.conf_thres, opt.iou_thres, classes=opt.classes, agnostic=opt.agnostic_nms)
-        t3 = time_synchronized()
+        t2 = time_synchronized()
 
         # Apply Classifier
         if classify:
@@ -118,14 +114,11 @@ def detect(save_img=False):
                         label = f'{names[int(cls)]} {conf:.2f}'
                         plot_one_box(xyxy, im0, label=label, color=colors[int(cls)], line_thickness=3)
 
-            # Print time (inference)
-            time_inf=(t2 - t1)*1e3
-            print(f'{s}Done. ({time_inf:.3f}ms)')
-            time_inf1.append(time_inf)
+
+
 
             # Print time (inference + NMS)
-            time_a=(t3 - t1)*1e3
-            time_2.append(time_a)
+            print(f'{s}Done. ({t2 - t1:.3f}s)')
 
             # Stream results
             if view_img:
@@ -153,8 +146,6 @@ def detect(save_img=False):
         s = f"\n{len(list(save_dir.glob('labels/*.txt')))} labels saved to {save_dir / 'labels'}" if save_txt else ''
         print(f"Results saved to {save_dir}{s}")
 
-    print(f'Avg_Inference {np.mean(time_inf1):.2f}'"ms")
-    print(f'Avg_Inference+NMS {np.mean(time_2):.2f}'"ms")
     print(f'Done. ({time.time() - t0:.3f}s)')
 
     if opt.save_txt and opt.save_conf:
@@ -172,13 +163,15 @@ def detect(save_img=False):
                 fp.write('%s %s %s %s %s %s\n'%(cla, conf, x1, y1, x2, y2))
             fp.close()
 
+
+
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', nargs='+', type=str, default='/home/vision-001/lukaijie/yolov5_pruning/weights/test_FLOPs/original.pt', help='model.pt path(s)')
+    parser.add_argument('--weights', nargs='+', type=str, default='best.pt', help='model.pt path(s)')
     parser.add_argument('--data', type=str, default='data/ab.yaml', help='data.yaml path')
-    parser.add_argument('--source', type=str, default='/home/vision-001/lukaijie/yolov5_pruning/data/images/test/', help='source')  # file/folder, 0 for webcam
+    parser.add_argument('--source', type=str, default='', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--conf-thres', type=float, default=0.6, help='object confidence threshold')
+    parser.add_argument('--conf-thres', type=float, default=0.25, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.5, help='IOU threshold for NMS')
     parser.add_argument('--device', default='', help='cuda device, i.e. 0 or 0,1,2,3 or cpu')
     parser.add_argument('--view-img', action='store_true', help='display results')
@@ -191,7 +184,7 @@ if __name__ == '__main__':
     parser.add_argument('--project', default='runs/detect', help='save results to project/name')
     parser.add_argument('--name', default='exp', help='save results to project/name')
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
-    parser.add_argument('--urlPath', default='2.txt', type=str, help='image urlPath')
+    parser.add_argument('--urlPath', default='2.txt', type=str, help='2.txt for 测试报告')
     opt = parser.parse_args()
     print(opt)
     check_requirements()
