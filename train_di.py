@@ -31,7 +31,7 @@ from utils.general import labels_to_class_weights, increment_path, labels_to_ima
     check_requirements, print_mutation, set_logging, one_cycle, colorstr
 from utils.google_utils import attempt_download
 from utils.loss import ComputeLoss, ComputeDstillLoss
-from utils.metrics import calculate_f1, calculate_recall
+from utils.metrics import calculate_f1
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
 from teacher import TeacherModel
@@ -47,9 +47,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     # Directories
     wdir = save_dir / 'weights'
     wdir.mkdir(parents=True, exist_ok=True)  # make dir
-    if opt.ft_pruned:
-        last = wdir / 'last.pt'
-        best = wdir / 'best.pt'
+    # if opt.ft_pruned:
+    #     last = wdir / 'last.pt'
+    #     best = wdir / 'best.pt'
     results_file = save_dir / 'results.txt'
 
     # Save run settings
@@ -170,7 +170,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     ema = ModelEMA(model) if rank in [-1, 0] else None
 
     # Resume
-    start_epoch, best_fitness, best_f1, best_recall = 0, 0.0, 0.0, 0.0
+    start_epoch, best_fitness, best_f1 = 0, 0.0, 0.0
     if pretrained:
         # Optimizer
         if ckpt['optimizer'] is not None:
@@ -273,17 +273,16 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 f'Logging results to {save_dir}\n'
                 f'Starting training for {epochs} epochs...')
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
-        if pretrained and not opt.ft_pruned:
+        if pretrained:
             last_ = 'last_' + str(epoch) + '.pt'
             best_mAP = 'best_map' + '.pt'
-            if opt.other_save:
+            if opt.f1_factor > 0:
+                # F1
                 best_F1 = 'best_f1' + '.pt'
-                best_Recall = 'best_recall' + '.pt'
                 best1 = wdir / best_F1
-                best2 = wdir / best_Recall
             last = wdir / last_
             # sr_cos
-            if opt.sr_cos:
+            if opt.sl_factor > 0 and opt.sr_cos:
                 hyp['sl'] = ((((1 + math.cos(epoch * math.pi / epochs)) / 2) ** 1.0) * 0.8 + 0.2) * opt.sl_factor
             best = wdir / best_mAP
         model.train()
@@ -453,14 +452,10 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
             # Update best mAP
             fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95] in [0.0, 0.0, 0.1, 0.9]
-            f1 = calculate_f1(results)  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
-            recall = calculate_recall(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95] in [0.0, 0.5, 0.1, 0.5]
+            f1 = calculate_f1(results, opt.f1_factor)  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
 
             if fi > best_fitness:
                 best_fitness = fi
-
-            if f1 > best_f1:
-                best_f1 = f1
 
             if recall > best_recall:
                 best_recall = recall
@@ -565,7 +560,7 @@ if __name__ == '__main__':
     parser.add_argument('--quad', action='store_true', help='quad dataloader')
     parser.add_argument('--linear-lr', action='store_true', help='linear LR')
     # parser.add_argument('--urlPath', default='./urlTxtPath', type=str, help='image url txt Path')
-    parser.add_argument('--other_save', action='store_true', help='save .pt for best_F1 and best_recall')
+    parser.add_argument('--f1_factor', type=float, default=0, help='save f1_model, bigger factor(>1) with higher R')
     # pruning
     parser.add_argument('--sl_factor', type=float, default=0, help='sparse learning factor,suggest=6e-4')
     parser.add_argument('--sr_cos', action='store_true', help='Cosine Sparsity rate')

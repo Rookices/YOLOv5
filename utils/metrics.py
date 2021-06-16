@@ -15,8 +15,9 @@ def fitness(x):
     return (x[:, :4] * w).sum(1)
 
 
-def calculate_f1(x):
-    return float(2*x[0]*x[1]/(x[0]+x[1]+1e-16))
+def calculate_f1(x, beta):
+    # f1=P R倒数平均和的倒数，可以通过增加P或R的比重对f1重新自定义
+    return float((1+beta**2)*x[0]*x[1]/(beta**2*x[0]+x[1]+1e-16))
 
 
 def calculate_recall(x):

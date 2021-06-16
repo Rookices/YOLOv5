@@ -15,7 +15,7 @@ pip install -r requirements.txt
 支持txt图库下载，由参数args.urlPath传入，并完成数据集划分及格式转换，第一次下载图片时查看路径下是否有之前下载的图片，如不需要则删除，只第一次训练时需下载图片。默认训练时加载1.txt，测试时加载2.txt。  
 数据集树状结构为
 
-```
+```text
 yolov5
 ├── data   
 │   ├── images   存放图片
@@ -36,30 +36,30 @@ yolov5
 1. 超参(--hyp)： ./data/hyp.scratch.yaml   (可自行修改超参，如学习率，数据增强所用的超参等)
 2. 模型配置(--cfg)： ./models/yolov5s.yaml  (为方便海思移植，已将focus层替换为conv层，upsample层替换为deconv层，且deconv层支持yolo缩放)
 3. 数据集(--data)： ./data/ab.yaml   (根据自己数据集**更改图片路径**，类别及类别数)
-4. 其他模型保存策略(--other_save)：可打开包含基于最优F1以及Wrecall的模型保存方式
-P.S. 在训练和测试阶段，无特殊情况，配置文件均为上述默认设置。
+4. 其他模型保存策略(--f1_factor)：新增基于f1评价指标的保存策略；>1时，R权重上升，反之越接近0，P权重越高
+5. P.S. 在训练和测试阶段，无特殊情况，配置文件均为上述默认设置。
 ---
 
 ##### 4.训练（含剪枝：步骤2-4）
 
 1. 原始模型训练
-   ```
+   ```cmd
    python train.py --weights ./weights/yolov5s.pt --epochs 1000 
    ```
    
 2. 稀疏训练，训练次数以能恢复原模型精度为准
-   ```
+   ```cmd
    python train.py --sl_factor <设定稀疏率，建议6e-4> --weights <半精度模型原始模型> --epochs 500
    ```
    
 3. 剪枝，剪枝模型路径下会自动生成剪枝稀疏度分布图W
-   ```
+   ```cmd
    python pruning.py --weights <稀疏后模型> --save_path <剪枝模型保存路径> --thres <默认剪枝阈值0.01>
    ```
    
 4. 模型微调
    
-   ```
+   ```cmd
    python train.py --weights <剪枝后模型> --epochs 500 --ft_pruned
    ```
    
@@ -68,22 +68,31 @@ P.S. 在训练和测试阶段，无特殊情况，配置文件均为上述默认
    ```
    python train_di.py --weights <Student模型> --t_weights <Teacher模型> --distill --temperature 4 --dist_loss kl --epochs 500 
    ```
+
+6. 冻结训练
+
+   ```python
+   freeze = ['model.%s.' % x for x in range(10)]  # 修改train.py后按4.1训练；其中对于s模型，0-9为backbone
+   ```
+
+   Tips：中断训练后可在opt.yaml中修改配置，通过 "python train.py --resume" 实现继续训练
+
 ---
 
 ##### 5.测试
 
 1. 图片推理
-   ```
+   ```cmd
    python detect.py --source <图片路径> --weights <模型> --conf-thres <置信度阈值默认0.25> --iou-thres <IoU阈值默认0.5>
    ```
 2. 模型评估(含FLOPs及耗时)
-   ``` 
+   ``` cmd
    python test.py --source <图片路径> --weights <模型>  --conf-thres <置信度阈值默认0.25> --iou-thres <IoU阈值默认0.5> --task <选择数据集val or test>
    ```
    P.S. 更改ab.yaml中的test路径可实现测试集更换
    
 3. 批量导出稀疏度分布图(自动识别last前缀模型，导出路径为模型根目录)
-   ```
+   ```cmd
    python img_bn_analyze.py --weights <模型所在根目录>
    ```
 ---
@@ -91,15 +100,15 @@ P.S. 在训练和测试阶段，无特殊情况，配置文件均为上述默认
 ##### 6.自动计算
 
 1. 生成真实标签
-   ```
+   ```cmd
    python get_gt_txt.py --testPath <测试集图片路径>
    ```
 2. 生成预测标签. 即在第5.1基础上将--save-txt, --save-conf 设置为True   
-   ```
+   ```cmd
    python detect.py --source <图片路径> --weights <模型> --conf-thres <置信度阈值默认0.25> --iou-thres <IoU阈值默认0.5> --save-txt --save-conf
    ```
 3. 自动计算，结果保存在result文件夹下
-   ```
+   ```cmd
    python auto_analysis.py --testPath <测试集图片路径>
    ```
 ---
@@ -117,7 +126,7 @@ P.S. 在训练和测试阶段，无特殊情况，配置文件均为上述默认
 3. onnx2caffe   
    
    1）修改 ./yolov5_onnxcaffe/convertCaffe.py
-   ```
+   ```text
         onnx_path        <onnx简化模型>
         prototxt_path    <prototxt保存路径>
         caffemodel_path  <caffemodel保存路径>
