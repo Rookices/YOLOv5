@@ -428,7 +428,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 os.system('gsutil cp %s gs://%s/results/results%s.txt' % (results_file, opt.bucket, opt.name))
 
             # Log
-            if not opt.still:
+            if not opt.distill:
                 tags = ['train/box_loss', 'train/obj_loss', 'train/cls_loss',  # train loss
                     'metrics/precision', 'metrics/recall', 'metrics/mAP_0.5', 'metrics/mAP_0.5:0.95',
                     'val/box_loss', 'val/obj_loss', 'val/cls_loss',  # val loss
@@ -457,8 +457,8 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             if fi > best_fitness:
                 best_fitness = fi
 
-            if recall > best_recall:
-                best_recall = recall
+            if f1 > best_f1:
+                best_f1 = f1
 
             # Save model
             if (not opt.nosave) or (final_epoch and not opt.evolve):  # if save
@@ -475,11 +475,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 torch.save(ckpt, last)
                 if best_fitness == fi:
                     torch.save(ckpt, best)
-                if opt.other_save:
+                if opt.f1_factor > 0:
                     if best_f1 == f1:
                         torch.save(ckpt, best1)
-                    if best_recall == recall:
-                        torch.save(ckpt, best2)
                 del ckpt
 
         # end epoch ----------------------------------------------------------------------------------------------------
@@ -488,7 +486,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     if rank in [-1, 0]:
         # Strip optimizers
         final = best if best.exists() else last  # final model
-        for f in ((last, best) if not opt.other_save else (last, best, best1, best2)):
+        for f in ((last, best) if not opt.f1_factor > 0 else (last, best, best1)):
             if f.exists():
                 strip_optimizer(f)
         if opt.bucket:
@@ -530,9 +528,9 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='./weights/last_579.pt', help='initial weights path')
-    parser.add_argument('--cfg', type=str, default='models/yolov5s_hat_nnie.yaml', help='model.yaml path')
-    parser.add_argument('--data', type=str, default='data/helmet_data.yaml', help='data.yaml path')
+    parser.add_argument('--weights', type=str, default='./weights/best_f1.pt', help='initial weights path')
+    parser.add_argument('--cfg', type=str, default='models/yolov5s_IMP0.01_nas_final.yaml', help='model.yaml path')
+    parser.add_argument('--data', type=str, default='data/ab.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='data/hyp.scratch.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=5)
     parser.add_argument('--batch-size', type=int, default=16, help='total batch size for all GPUs')
@@ -567,7 +565,7 @@ if __name__ == '__main__':
     parser.add_argument('--ft_pruned', action='store_true', help='fine-tune pruned model')
     #distill
     parser.add_argument('--distill', action='store_true',help='cache images for faster training')
-    parser.add_argument('--t_weights', type=str, default='weights/yolov5s.pt', help='initial tweights path')
+    parser.add_argument('--t_weights', type=str, default='weights/original_new.pt', help='initial tweights path')
     parser.add_argument('--dist_loss', type=str, default='kl', help='using kl/l2 loss in distillation')
     parser.add_argument('--temperature', type=int, default=0, help='temperature in distilling training')
     opt = parser.parse_args()
