@@ -233,7 +233,7 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             # cf = torch.bincount(c.long(), minlength=nc) + 1.  # frequency
             # model._initialize_biases(cf.to(device))
             if plots:
-                plot_labels(labels, save_dir, loggers)
+                plot_labels(labels, names, save_dir, loggers)
                 if tb_writer:
                     tb_writer.add_histogram('classes', c, 0)
 
@@ -376,10 +376,12 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             if rank in [-1, 0]:
                 mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
                 if opt.sl_factor > 0: sl_mloss = (sl_mloss * i + sl_loss_items) / (i + 1)
-                if opt.distill: mdloss = (mdloss * i + dloss) / (i + 1)
+                if opt.distill:
+                    mdloss = (mdloss * i + dloss) / (i + 1)
+                    s = ('%10s' * 2 + '%10.4g' * 6 + '%10.4g') % ('%g/%g' % (epoch, epochs - 1), mem, *mloss, mdloss, targets.shape[0], imgs.shape[-1])
+                else:
+                    s = ('%10s' * 2 + '%10.4g' * 6) % ('%g/%g' % (epoch, epochs - 1), mem, *mloss, targets.shape[0], imgs.shape[-1])
                 mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
-                s = ('%10s' * 2 + '%10.4g' * 6) % (
-                    '%g/%g' % (epoch, epochs - 1), mem, *mloss, targets.shape[0], imgs.shape[-1])
                 pbar.set_description(s)
 
                 # Plot
@@ -557,6 +559,7 @@ if __name__ == '__main__':
     parser.add_argument('--exist-ok', action='store_true', help='existing project/name ok, do not increment')
     parser.add_argument('--quad', action='store_true', help='quad dataloader')
     parser.add_argument('--linear-lr', action='store_true', help='linear LR')
+    parser.add_argument('--label-smoothing', type=float, default=0.0, help='Label smoothing epsilon')
     # parser.add_argument('--urlPath', default='./urlTxtPath', type=str, help='image url txt Path')
     parser.add_argument('--f1_factor', type=float, default=0, help='save f1_model, bigger factor(>1) with higher R')
     # pruning
