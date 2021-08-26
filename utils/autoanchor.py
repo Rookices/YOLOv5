@@ -3,7 +3,6 @@
 import numpy as np
 import torch
 import yaml
-from scipy.cluster.vq import kmeans
 from tqdm import tqdm
 
 from utils.general import colorstr
@@ -37,29 +36,34 @@ def check_anchors(dataset, model, thr=4.0, imgsz=640):
         bpr = (best > 1. / thr).float().mean()  # best possible recall
         return bpr, aat
 
-    bpr, aat = metric(m.anchor_grid.clone().cpu().view(-1, 2))
+    anchors = m.anchor_grid.clone().cpu().view(-1, 2)  # current anchors
+    bpr, aat = metric(anchors)
     print(f'anchors/target = {aat:.2f}, Best Possible Recall (BPR) = {bpr:.4f}', end='')
     if bpr < 0.98:  # threshold to recompute
         print('. Attempting to improve anchors, please wait...')
         na = m.anchor_grid.numel() // 2  # number of anchors
-        new_anchors = kmean_anchors(dataset, n=na, img_size=imgsz, thr=thr, gen=1000, verbose=False)
-        new_bpr = metric(new_anchors.reshape(-1, 2))[0]
+        try:
+            anchors = kmean_anchors(dataset, n=na, img_size=imgsz, thr=thr, gen=1000, verbose=False)
+        except Exception as e:
+            print(f'{prefix}ERROR: {e}')
+        new_bpr = metric(anchors)[0]
         if new_bpr > bpr:  # replace anchors
-            new_anchors = torch.tensor(new_anchors, device=m.anchors.device).type_as(m.anchors)
-            m.anchor_grid[:] = new_anchors.clone().view_as(m.anchor_grid)  # for inference
-            m.anchors[:] = new_anchors.clone().view_as(m.anchors) / m.stride.to(m.anchors.device).view(-1, 1, 1)  # loss
+            anchors = torch.tensor(anchors, device=m.anchors.device).type_as(m.anchors)
+            m.anchor_grid[:] = anchors.clone().view_as(m.anchor_grid)  # for inference
+            m.anchors[:] = anchors.clone().view_as(m.anchors) / m.stride.to(m.anchors.device).view(-1, 1, 1)  # loss
             check_anchor_order(m)
             print(f'{prefix}New anchors saved to model. Update model *.yaml to use these anchors in the future.')
         else:
             print(f'{prefix}Original anchors better than new anchors. Proceeding with original anchors.')
     print('')  # newline
+    return anchors
 
 
-def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=1000, verbose=True):
+def kmean_anchors(dataset='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=1000, verbose=True):
     """ Creates kmeans-evolved anchors from training dataset
 
         Arguments:
-            path: path to dataset *.yaml, or a loaded dataset
+            dataset: path to data.yaml, or a loaded dataset
             n: number of anchors
             img_size: image size used for training
             thr: anchor-label wh ratio threshold hyperparameter hyp['anchor_t'] used for training, default=4.0
@@ -72,6 +76,8 @@ def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=10
         Usage:
             from utils.autoanchor import *; _ = kmean_anchors()
     """
+    from scipy.cluster.vq import kmeans
+
     thr = 1. / thr
     prefix = colorstr('autoanchor: ')
 
@@ -96,13 +102,11 @@ def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=10
             print('%i,%i' % (round(x[0]), round(x[1])), end=',  ' if i < len(k) - 1 else '\n')  # use in *.cfg
         return k
 
-    if isinstance(path, str):  # *.yaml file
-        with open(path) as f:
-            data_dict = yaml.load(f, Loader=yaml.SafeLoader)  # model dict
+    if isinstance(dataset, str):  # *.yaml file
+        with open(dataset, errors='ignore') as f:
+            data_dict = yaml.safe_load(f)  # model dict
         from utils.datasets import LoadImagesAndLabels
         dataset = LoadImagesAndLabels(data_dict['train'], augment=True, rect=True)
-    else:
-        dataset = path  # dataset
 
     # Get label wh
     shapes = img_size * dataset.shapes / dataset.shapes.max(1, keepdims=True)
@@ -119,6 +123,7 @@ def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=10
     print(f'{prefix}Running kmeans for {n} anchors on {len(wh)} points...')
     s = wh.std(0)  # sigmas for whitening
     k, dist = kmeans(wh / s, n, iter=30)  # points, mean distance
+    assert len(k) == n, print(f'{prefix}ERROR: scipy.cluster.vq.kmeans requested {n} points but returned only {len(k)}')
     k *= s
     wh = torch.tensor(wh, dtype=torch.float32)  # filtered
     wh0 = torch.tensor(wh0, dtype=torch.float32)  # unfiltered
@@ -143,7 +148,7 @@ def kmean_anchors(path='./data/coco128.yaml', n=9, img_size=640, thr=4.0, gen=10
     for _ in pbar:
         v = np.ones(sh)
         while (v == 1).all():  # mutate until a change occurs (prevent duplicates)
-            v = ((npr.random(sh) < mp) * npr.random() * npr.randn(*sh) * s + 1).clip(0.3, 3.0)
+            v = ((npr.random(sh) < mp) * random.random() * npr.randn(*sh) * s + 1).clip(0.3, 3.0)
         kg = (k.copy() * v).clip(min=2.0)
         fg = anchor_fitness(kg)
         if fg > f:
