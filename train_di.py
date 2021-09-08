@@ -30,7 +30,7 @@ from utils.general import labels_to_class_weights, increment_path, labels_to_ima
     fitness, strip_optimizer, get_latest_run, check_dataset, check_file, check_git_status, check_img_size, \
     check_requirements, print_mutation, set_logging, one_cycle, colorstr
 from utils.google_utils import attempt_download
-from utils.loss import ComputeLoss, ComputeDstillLoss
+from utils.loss import ComputeLoss, compute_distillation_output_loss
 from utils.metrics import calculate_f1
 from utils.plots import plot_images, plot_labels, plot_results, plot_evolution
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, is_parallel
@@ -96,9 +96,12 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
 
     if opt.distill:
         print("load t-model from", opt.t_weights)
-        t_model = TeacherModel(
-            conf_thres=0.1, iou_thres=0.5, imgsz=opt.img_size[-1])
-        t_model.init_model(opt.t_weights, device, opt.batch_size, nc)
+        t_model = torch.load(opt.t_weights, map_location=torch.device('cpu'))
+        if t_model.get("model", None) is not None:
+            t_model = t_model["model"]
+        t_model.to(device)
+        t_model.float()
+        t_model.train()
 
     # Freeze
     freeze = []  # parameter names to freeze (full or partial)
@@ -242,6 +245,18 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 check_anchors(dataset, model=model, thr=hyp['anchor_t'], imgsz=imgsz)
             model.half().float()  # pre-reduce anchor precision
 
+    if not opt.noautoanchor:
+        det = model.module.model[-1] if is_parallel(model) else model.model[-1]
+        s_anchors = det.anchors  # shape = (3, 3, 2)
+        t_det = t_model.module.model[-1] if is_parallel(
+            t_model) else t_model.model[-1]
+        t_anchors = t_det.anchors  # shape = (3, 3, 2)
+        reg_norm = torch.sqrt(t_anchors / s_anchors)
+        del det, t_det
+    else:
+        reg_norm = None
+    print(reg_norm)
+
     # DDP mode
     if cuda and rank != -1:
         model = DDP(model, device_ids=[opt.local_rank], output_device=opt.local_rank,
@@ -267,11 +282,12 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
     scheduler.last_epoch = start_epoch - 1  # do not move
     scaler = amp.GradScaler(enabled=cuda)
     compute_loss = ComputeLoss(model)  # init loss class
-    compute_dist_loss = ComputeDstillLoss(model, temperature=opt.temperature)
+    dist_loss = opt.dist_loss
     logger.info(f'Image sizes {imgsz} train, {imgsz_test} test\n'
                 f'Using {dataloader.num_workers} dataloader workers\n'
                 f'Logging results to {save_dir}\n'
-                f'Starting training for {epochs} epochs...')
+                f'Starting training for {epochs} epochs...\n'
+                f'Distillation loss type: {dist_loss}')
     for epoch in range(start_epoch, epochs):  # epoch ------------------------------------------------------------------
         if pretrained:
             last_ = 'last_' + str(epoch) + '.pt'
@@ -347,15 +363,17 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
                 pred = model(imgs)  # forward
                 if opt.distill:
                     with torch.no_grad():
-                        t_targets = t_model(imgs)
-                    dloss = compute_dist_loss(pred, t_targets.to(device), opt.dist_loss)
+                        t_pred = t_model(imgs)
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
                 if opt.sl_factor > 0:
                     sl_loss, sl_loss_items = compute_loss.sl_loss(pred, prunable_modules)
                     loss += sl_loss
+                if opt.distill:
+                    dloss = compute_distillation_output_loss(pred, t_pred, model, dist_loss, opt.temperature, reg_norm)
                 else:
                     dloss = 0
-                loss +=dloss
+                loss += dloss
+                loss_items[-1] = loss
                 if rank != -1:
                     loss *= opt.world_size  # gradient averaged between devices in DDP mode
                 if opt.quad:
@@ -376,12 +394,12 @@ def train(hyp, opt, device, tb_writer=None, wandb=None):
             if rank in [-1, 0]:
                 mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
                 if opt.sl_factor > 0: sl_mloss = (sl_mloss * i + sl_loss_items) / (i + 1)
+                mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
                 if opt.distill:
                     mdloss = (mdloss * i + dloss) / (i + 1)
                     s = ('%10s' * 2 + '%10.4g' * 6 + '%10.4g') % ('%g/%g' % (epoch, epochs - 1), mem, *mloss, mdloss, targets.shape[0], imgs.shape[-1])
                 else:
                     s = ('%10s' * 2 + '%10.4g' * 6) % ('%g/%g' % (epoch, epochs - 1), mem, *mloss, targets.shape[0], imgs.shape[-1])
-                mem = '%.3gG' % (torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0)  # (GB)
                 pbar.set_description(s)
 
                 # Plot
