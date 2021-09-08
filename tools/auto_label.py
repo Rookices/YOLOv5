@@ -71,7 +71,7 @@ def get_md5(file_name, path):
 # 查找目标目录下的所有文件,并使用MD5值及后缀名重命名当前文件
 def rename_md5(path):
     winerror = []
-    label_name = opt.rename + "_"
+    label_name = opt.label_name + "_"
     for root, dirlist, filelist in os.walk(path):
         for file in filelist:
             newname = label_name + '{0}.{1}'.format(get_md5(file, path), file.split('.')[-1])
@@ -94,19 +94,19 @@ if __name__ == '__main__':
     import argparse
 
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default="", help='initial weights path')
-    parser.add_argument('--img-path', type=str, default='../data/auto_label')
-    parser.add_argument('--xml-path', type=str, default='../data/auto_label/xml', help='xml save_path')
+    parser.add_argument('--weights', type=str, default=r"", help='initial weights path')
+    parser.add_argument('--img-path', '--img', type=str, default=r'')
+    parser.add_argument('--xml-path', '--xml', type=str, default=r'', help='xml save_path')
     parser.add_argument('--img-size', type=int, default=640, help='inference size (pixels)')
-    parser.add_argument('--rename', type=str, default='', help='rename into label_hd5')
-    parser.add_argument('--conf-thres', type=float, default=0.5, help='object confidence threshold')
+    parser.add_argument('--label-name', '--label', type=str, default='', help='rename')
+    parser.add_argument('--conf-thres', type=float, default=0.3, help='object confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
-    parser.add_argument('--save-pred', action='store_true', help='save picture of pred')
+    parser.add_argument('--save-pred', '--save', action='store_true', help='save picture of pred')
     opt = parser.parse_args()
 
     if not os.path.exists(opt.xml_path):
         os.makedirs(opt.xml_path)
-    if opt.rename != '':
+    if opt.label_name != '':
         rename_md5(opt.img_path)
     yolo = yolo_detect_api.yolo_inference()
 
