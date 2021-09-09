@@ -244,8 +244,7 @@ def compute_distillation_output_loss(p, t_p, model, dist_loss="l2", T=20, reg_no
     h = model.hyp  # hyperparameters
     red = 'mean'  # Loss reduction (sum or mean)
     if red != "mean":
-        raise NotImplementedError(
-            "reduction must be mean in distillation mode!")
+        raise NotImplementedError("reduction must be mean in distillation mode!")
 
     DboxLoss = nn.MSELoss(reduction="none")
     if dist_loss == "l2":
@@ -266,24 +265,19 @@ def compute_distillation_output_loss(p, t_p, model, dist_loss="l2", T=20, reg_no
             t_lbox += torch.mean(DboxLoss(pi[..., :4],
                                           t_pi[..., :4]) * b_obj_scale)
         else:
-            wh_norm_scale = reg_norm[i].unsqueeze(
-                0).unsqueeze(-2).unsqueeze(-2)
-            t_lbox += torch.mean(DboxLoss(pi[..., :2].sigmoid(),
-                                          t_pi[..., :2].sigmoid()) * b_obj_scale)
-            t_lbox += torch.mean(DboxLoss(pi[..., 2:4].sigmoid(),
-                                          t_pi[..., 2:4].sigmoid() * wh_norm_scale) * b_obj_scale)
+            wh_norm_scale = reg_norm[i].unsqueeze(0).unsqueeze(-2).unsqueeze(-2)
+            t_lbox += torch.mean(DboxLoss(pi[..., :2].sigmoid(), t_pi[..., :2].sigmoid()) * b_obj_scale)
+            t_lbox += torch.mean(
+                DboxLoss(pi[..., 2:4].sigmoid(), t_pi[..., 2:4].sigmoid() * wh_norm_scale) * b_obj_scale)
 
         # Class
         if model.nc > 1:  # cls loss (only if multiple classes)
-            c_obj_scale = t_obj_scale.unsqueeze(-1).repeat(1,
-                                                           1, 1, 1, model.nc)
+            c_obj_scale = t_obj_scale.unsqueeze(-1).repeat(1, 1, 1, 1, model.nc)
             if dist_loss == "kl":
-                kl_loss = DclsLoss(F.log_softmax(pi[..., 5:]/T, dim=-1),
-                                   F.softmax(t_pi[..., 5:]/T, dim=-1)) * (T * T)
+                kl_loss = DclsLoss(F.log_softmax(pi[..., 5:] / T, dim=-1), F.softmax(t_pi[..., 5:] / T, dim=-1)) * (T * T)
                 t_lcls += torch.mean(kl_loss * c_obj_scale)
             else:
-                t_lcls += torch.mean(DclsLoss(pi[..., 5:],
-                                              t_pi[..., 5:]) * c_obj_scale)
+                t_lcls += torch.mean(DclsLoss(pi[..., 5:], t_pi[..., 5:]) * c_obj_scale)
 
         t_lobj += torch.mean(DobjLoss(pi[..., 4], t_pi[..., 4]) * t_obj_scale)
     t_lbox *= h['giou'] * h['dist']

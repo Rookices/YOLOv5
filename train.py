@@ -245,7 +245,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                 anchor_txt = Path(opt.save_dir) / 'anchors.txt'
                 new_anchors = torch.round((check_anchors(dataset, model=model, thr=hyp['anchor_t'],
                                                          imgsz=imgsz).view(1, 3, -1, 2)))
-                anchor_txt.write_text(str(new_anchors) if not opt.noautoanchor else hyp.get('anchors'))
+            anchor_txt.write_text(str(new_anchors) if not opt.noautoanchor else hyp.get('anchors'))
             model.half().float()  # pre-reduce anchor precision
 
         callbacks.on_pretrain_routine_end()

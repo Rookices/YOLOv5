@@ -233,7 +233,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                 anchor_txt = Path(opt.save_dir) / 'anchors.txt'
                 new_anchors = torch.round((check_anchors(dataset, model=model, thr=hyp['anchor_t'],
                                                          imgsz=imgsz).view(1, 3, -1, 2)))
-                anchor_txt.write_text(str(new_anchors) if not opt.noautoanchor else hyp.get('anchors'))
+            anchor_txt.write_text(str(new_anchors) if not opt.noautoanchor else hyp.get('anchors'))
             model.half().float()  # pre-reduce anchor precision
 
         callbacks.on_pretrain_routine_end()
@@ -377,16 +377,14 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                 loggers.on_train_batch_end(ni, model, imgs, targets, paths, plots)
 
             # end batch ------------------------------------------------------------------------------------------------
-        # end epoch ----------------------------------------------------------------------------------------------------
 
         # Scheduler
-        lr = [x['lr'] for x in optimizer.param_groups]  # for tensorboard
+        lr = [x['lr'] for x in optimizer.param_groups]  # for loggers
         scheduler.step()
 
-        # DDP process 0 or single-GPU
         if RANK in [-1, 0]:
             # mAP
-            loggers.on_train_epoch_end(epoch)
+            callbacks.on_train_epoch_end(epoch=epoch)
             ema.update_attr(model, include=['yaml', 'nc', 'hyp', 'names', 'stride', 'class_weights'])
             final_epoch = epoch + 1 == epochs
             if not noval or final_epoch:  # Calculate mAP
