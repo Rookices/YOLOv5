@@ -28,9 +28,9 @@ def load_image(urlPath, data_yaml):
     if not os.path.exists('data/Annatations'):
         os.mkdir('data/Annatations')
 
-    train_file = open('./train.txt', 'w')
-    val_file = open('./val.txt', 'w')
-    test_file = open('./test.txt', 'w')
+    train_file = open('./data/train.txt', 'w')
+    val_file = open('./data/val.txt', 'w')
+    test_file = open('./data/test.txt', 'w')
     urls = open(urlPath)
     num_pic = int(len(urls.readlines()) * 0.5)
     count = 0
@@ -120,7 +120,7 @@ def labels(data_yaml):
     sets = ['train', 'val', 'test']
 
     for image_set in sets:
-        image_ids = open('./%s.txt' % (image_set)).read().strip().split()
+        image_ids = open('./data/%s.txt' % image_set).read().strip().split()
         for image_id in image_ids:
             image_path = image_id.split('.')[0].split('/')[-1]
             img_path = os.path.join('./data/images', image_set, (image_path + '.jpg'))

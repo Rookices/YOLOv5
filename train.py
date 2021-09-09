@@ -40,7 +40,6 @@ from utils.loggers import Loggers
 from utils.callbacks import Callbacks
 from utils.load_image import load_train_image
 
-
 LOGGER = logging.getLogger(__name__)
 LOCAL_RANK = int(os.getenv('LOCAL_RANK', -1))  # https://pytorch.org/docs/stable/elastic/run.html
 RANK = int(os.getenv('RANK', -1))
@@ -475,7 +474,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 def parse_opt(known=False):
     parser = argparse.ArgumentParser()
     parser.add_argument('--weights', type=str, default='weights/yolov5s.pt', help='initial weights path')
-    parser.add_argument('--cfg', type=str, default='models/test.yaml', help='model.yaml path')
+    parser.add_argument('--cfg', type=str, default='models/barcode/yolov5s_0.5.yaml', help='model.yaml path')
     parser.add_argument('--data', type=str, default='data/barcode.yaml', help='data.yaml path')
     parser.add_argument('--hyp', type=str, default='data/hyps/hyp.scratch.yaml', help='hyperparameters path')
     parser.add_argument('--epochs', type=int, default=500)
@@ -525,15 +524,11 @@ def main(opt):
     set_logging(RANK)
     if RANK in [-1, 0]:
         print(colorstr('train: ') + ', '.join(f'{k}={v}' for k, v in vars(opt).items()))
-        check_git_status()
+        # check_git_status()
         check_requirements(requirements=FILE.parent / 'requirements.txt', exclude=['thop'])
 
     # check datasets from urlPath
-    i = 0
-    if os.path.exists('./data/images/train/'):
-        for item in os.listdir('./data/images/train/'):
-            i += 1
-    if not os.path.exists('./data/images/train/') or i < 0:
+    if opt.urlPath != '' and not os.path.exists('./data/images/train/'):
         load_train_image(opt.urlPath, opt.data)
 
     # Resume
