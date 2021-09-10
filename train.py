@@ -116,6 +116,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         csd = {}
     else:
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
+    m_anchors = model.module.model[-1] if hasattr(model, 'module') else model.model[-1]
 
     # Freeze
     freeze = [f'model.{x}.' for x in range(freeze)]  # layers to freeze
@@ -245,7 +246,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                 anchor_txt = Path(opt.save_dir) / 'anchors.txt'
                 new_anchors = torch.round((check_anchors(dataset, model=model, thr=hyp['anchor_t'],
                                                          imgsz=imgsz).view(1, 3, -1, 2)))
-            anchor_txt.write_text(str(new_anchors) if not opt.noautoanchor else hyp.get('anchors'))
+            anchor_txt.write_text(str(new_anchors) if not opt.noautoanchor else str(m_anchors.anchor_grid))
             model.half().float()  # pre-reduce anchor precision
 
         callbacks.on_pretrain_routine_end()
@@ -430,7 +431,7 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                         'ema': deepcopy(ema.ema).half(),
                         'updates': ema.updates,
                         'optimizer': optimizer.state_dict(),
-                        'anchors': str(new_anchors) if not opt.noautoanchor else hyp.get('anchors'),
+                        'anchors': str(new_anchors) if not opt.noautoanchor else str(m_anchors.anchor_grid),
                         'wandb_id': loggers.wandb.wandb_run.id if loggers.wandb else None}
 
                 # Save last, best and delete
