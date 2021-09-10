@@ -33,8 +33,14 @@ class Loggers():
         self.logger = logger  # for printing results to console
         self.include = include
         if opt.sl_factor > 0:
-            # add sl_floss
-            self.keys = ['train/box_loss', 'train/obj_loss', 'train/cls_loss', 'train/sl_floss',  # train loss
+            # add sl_mloss
+            self.keys = ['train/box_loss', 'train/obj_loss', 'train/cls_loss', 'train/sl_mloss',  # train loss
+                         'metrics/precision', 'metrics/recall', 'metrics/mAP_0.5', 'metrics/mAP_0.5:0.95',  # metrics
+                         'val/box_loss', 'val/obj_loss', 'val/cls_loss',  # val loss
+                         'x/lr0', 'x/lr1', 'x/lr2']  # params
+        elif opt.distill:
+            # add dist_loss
+            self.keys = ['train/box_loss', 'train/obj_loss', 'train/cls_loss', 'train/dist_loss',  # train loss
                          'metrics/precision', 'metrics/recall', 'metrics/mAP_0.5', 'metrics/mAP_0.5:0.95',  # metrics
                          'val/box_loss', 'val/obj_loss', 'val/cls_loss',  # val loss
                          'x/lr0', 'x/lr1', 'x/lr2']  # params

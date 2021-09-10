@@ -7,7 +7,6 @@ import sys
 import time
 from copy import deepcopy
 from pathlib import Path
-from threading import Thread
 
 import numpy as np
 import torch
@@ -31,7 +30,7 @@ from utils.general import labels_to_class_weights, increment_path, labels_to_ima
     strip_optimizer, get_latest_run, check_dataset, check_file, check_git_status, check_img_size, \
     check_requirements, print_mutation, set_logging, one_cycle, colorstr, methods
 from utils.downloads import attempt_download
-from utils.loss import ComputeLoss
+from utils.loss import ComputeLoss, compute_distillation_output_loss
 from utils.plots import plot_labels, plot_evolve
 from utils.torch_utils import ModelEMA, select_device, intersect_dicts, torch_distributed_zero_first, de_parallel
 from utils.loggers.wandb.wandb_utils import check_wandb_resume
@@ -117,6 +116,15 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
     else:
         model = Model(cfg, ch=3, nc=nc, anchors=hyp.get('anchors')).to(device)  # create
     m_anchors = model.module.model[-1] if hasattr(model, 'module') else model.model[-1]
+
+    if opt.distill:
+        print("load t-model from", opt.t_weights)
+        t_model = torch.load(opt.t_weights, map_location=torch.device('cpu'))
+        if t_model.get("model", None) is not None:
+            t_model = t_model["model"]
+        t_model.to(device)
+        t_model.float()
+        t_model.train()
 
     # Freeze
     freeze = [f'model.{x}.' for x in range(freeze)]  # layers to freeze
@@ -315,11 +323,18 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
         # dataset.mosaic_border = [b - imgsz, -b]  # height, width borders
 
         mloss = torch.zeros(3, device=device)  # mean losses
-        if opt.sl_factor > 0: sl_mloss = torch.zeros(1, device=device)
+        mdloss = torch.zeros(1, device=device)  # mean dlosses
+        sl_mloss = torch.zeros(1, device=device)  # mean sl_mlosses
         if RANK != -1:
             train_loader.sampler.set_epoch(epoch)
         pbar = enumerate(train_loader)
-        LOGGER.info(('\n' + '%10s' * 7) % ('Epoch', 'gpu_mem', 'box', 'obj', 'cls', 'labels', 'img_size'))
+        if opt.distill:
+            LOGGER.info(
+                ('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'box', 'obj', 'cls', 'dist', 'labels', 'img_size'))
+        elif opt.sl_factor > 0:
+            LOGGER.info(('\n' + '%10s' * 8) % ('Epoch', 'gpu_mem', 'box', 'obj', 'cls', 'sl', 'labels', 'img_size'))
+        else:
+            LOGGER.info(('\n' + '%10s' * 7) % ('Epoch', 'gpu_mem', 'box', 'obj', 'cls', 'labels', 'img_size'))
         if RANK in [-1, 0]:
             pbar = tqdm(pbar, total=nb)  # progress bar
         optimizer.zero_grad()
@@ -350,7 +365,20 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             # Forward
             with amp.autocast(enabled=cuda):
                 pred = model(imgs)  # forward
+                # begin compute_dloss-------------------
+                if opt.distill:
+                    with torch.no_grad():
+                        t_pred = t_model(imgs)
                 loss, loss_items = compute_loss(pred, targets.to(device))  # loss scaled by batch_size
+                # distillation
+                if opt.distill:
+                    dloss = compute_distillation_output_loss(
+                        pred, t_pred, model, opt.dist_loss, opt.temperature)
+                else:
+                    dloss = 0
+                loss += dloss
+                loss_items[-1] = loss
+                # end compute_dloss-------------------
                 if opt.sl_factor > 0:
                     sl_loss, sl_loss_items = compute_loss.sl_loss(pred, prunable_modules)
                     loss += sl_loss
@@ -374,10 +402,18 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             # Log
             if RANK in [-1, 0]:
                 mloss = (mloss * i + loss_items) / (i + 1)  # update mean losses
-                if opt.sl_factor > 0: sl_mloss = (sl_mloss * i + sl_loss_items) / (i + 1)
+                if opt.distill: mdloss = (mdloss * i + dloss) / (i + 1)  # update mean dlosses
+                if opt.sl_factor > 0: sl_mloss = (sl_mloss * i + sl_loss_items) / (i + 1)  # update mean sl_mlosses
                 mem = f'{torch.cuda.memory_reserved() / 1E9 if torch.cuda.is_available() else 0:.3g}G'  # (GB)
-                pbar.set_description(('%10s' * 2 + '%10.4g' * 5) % (
-                    f'{epoch}/{epochs - 1}', mem, *mloss, targets.shape[0], imgs.shape[-1]))
+                if opt.distill:
+                    pbar.set_description(('%10s' * 2 + '%10.4g' * 6) % (
+                        f'{epoch}/{epochs - 1}', mem, *mloss, mdloss, targets.shape[0], imgs.shape[-1]))
+                elif opt.sl_factor > 0:
+                    pbar.set_description(('%10s' * 2 + '%10.4g' * 6) % (
+                        f'{epoch}/{epochs - 1}', mem, *mloss, sl_mloss, targets.shape[0], imgs.shape[-1]))
+                else:
+                    pbar.set_description(('%10s' * 2 + '%10.4g' * 5) % (
+                        f'{epoch}/{epochs - 1}', mem, *mloss, targets.shape[0], imgs.shape[-1]))
                 callbacks.on_train_batch_end(ni, model, imgs, targets, paths, plots)
             # end batch ------------------------------------------------------------------------------------------------
 
@@ -403,9 +439,6 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                                            plots=plots and final_epoch,
                                            callbacks=callbacks,
                                            compute_loss=compute_loss)
-                if opt.sl_factor > 0:
-                    LOGGER.info(('%10s') % ('sl_mloss'))
-                    LOGGER.info(('%10.4g') % (*sl_mloss,))
 
             # Update best mAP
             fi = fitness(np.array(results).reshape(1, -1))  # weighted combination of [P, R, mAP@.5, mAP@.5-.95]
@@ -417,7 +450,9 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             if f1 > best_f1:
                 best_f1 = f1
 
-            if opt.sl_factor > 0:
+            if opt.distill:
+                log_vals = list(mloss) + list(mdloss) + list(results) + lr
+            elif opt.sl_factor > 0:
                 log_vals = list(mloss) + list(sl_mloss) + list(results) + lr
             else:
                 log_vals = list(mloss) + list(results) + lr
@@ -431,7 +466,6 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                         'ema': deepcopy(ema.ema).half(),
                         'updates': ema.updates,
                         'optimizer': optimizer.state_dict(),
-                        'anchors': str(new_anchors) if not opt.noautoanchor else str(m_anchors.anchor_grid),
                         'wandb_id': loggers.wandb.wandb_run.id if loggers.wandb else None}
 
                 # Save last, best and delete
@@ -512,6 +546,11 @@ def parse_opt(known=False):
     parser.add_argument('--f1_factor', type=float, default=1, help='save f1_model, bigger factor(>1) with higher R')
     parser.add_argument('--save_period', type=float, default=1, help='Log model after every "save_period" epoch')
     parser.add_argument('--remove_aug', type=float, default=3, help='Remove mosaic in the last "remove_aug" epochs')
+    # distill
+    parser.add_argument('--distill', action='store_true', help='cache images for faster training')
+    parser.add_argument('--t_weights', type=str, default='', help='initial tweights path')
+    parser.add_argument('--dist_loss', type=str, default='l2', help='using kl/l2 loss in distillation')
+    parser.add_argument('--temperature', type=int, default=5, help='temperature in distilling training')
     # pruning
     parser.add_argument('--sl_factor', type=float, default=0, help='sparse learning factor, suggest=6e-4')
     parser.add_argument('--sr_cos', action='store_true', help='Cosine Sparsity rate')

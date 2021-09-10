@@ -1,5 +1,6 @@
 import argparse
 import logging
+import math
 import os
 import random
 import sys
@@ -7,7 +8,6 @@ import time
 from copy import deepcopy
 from pathlib import Path
 
-import math
 import numpy as np
 import torch
 import torch.distributed as dist
@@ -412,7 +412,10 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
             if f1 > best_f1:
                 best_f1 = f1
 
-            log_vals = list(mloss) + list(results) + lr
+            if opt.distill:
+                log_vals = list(mloss) + list(mdloss) + list(results) + lr
+            else:
+                log_vals = list(mloss) + list(results) + lr
             callbacks.on_fit_epoch_end(log_vals, epoch, best_fitness, fi)
 
             # Save model
@@ -423,7 +426,6 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
                         'ema': deepcopy(ema.ema).half(),
                         'updates': ema.updates,
                         'optimizer': optimizer.state_dict(),
-                        'anchors': str(new_anchors) if not opt.noautoanchor else str(m_anchors.anchor_grid),
                         'wandb_id': loggers.wandb.wandb_run.id if loggers.wandb else None}
 
                 # Save last, best and delete
@@ -466,9 +468,9 @@ def train(hyp,  # path/to/hyp.yaml or hyp dictionary
 
 def parse_opt(known=False):
     parser = argparse.ArgumentParser()
-    parser.add_argument('--weights', type=str, default='yolov5s.pt', help='initial weights path')
+    parser.add_argument('--weights', type=str, default='', help='initial weights path')
     parser.add_argument('--distill', action='store_true', help='cache images for faster training')
-    parser.add_argument('--t_weights', type=str, default='yolov5l.pt', help='initial tweights path')
+    parser.add_argument('--t_weights', type=str, default='', help='initial tweights path')
     parser.add_argument('--dist_loss', type=str, default='l2', help='using kl/l2 loss in distillation')
     parser.add_argument('--temperature', type=int, default=5, help='temperature in distilling training')
     parser.add_argument('--cfg', type=str, default='', help='model.yaml path')
